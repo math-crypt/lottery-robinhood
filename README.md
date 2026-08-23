@@ -22,9 +22,9 @@ Taxes are collected and instantly converted to **ETH** during the swap routing p
 
 ### 🏆 Hourly Volume Rewards
 Instead of rewarding passive "whales" holding the token, the protocol rewards active ecosystem participants. The 1% Volume Reward pot is distributed **every hour** in ETH:
-- **50% of the pot** is distributed to the **Top 10 traders** (by volume) of that hour.
+- **50% of the pot** is automatically airdropped to the **Top 10 traders** (by volume) of that hour.
 - **50% of the pot** is distributed proportionally to **all traders** who contributed to the volume during that hour.
-*(Users claim their accumulated ETH rewards via a secure pull-pattern to ensure network efficiency).*
+*(To prevent blockchain gas limits, mass-distribution is handled via a queue system automatically processed by **Chainlink Automation**. No website claiming required!)*
 
 ### 🎟️ Daily On-Chain Lottery
 - Users receive **1 Lottery Ticket** for every `0.1 ETH` of qualifying trading volume.
