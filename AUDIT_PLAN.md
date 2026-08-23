@@ -11,6 +11,7 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Architecture: **Uniswap V4 Hook**. Taxes and reward logic handled natively in a V4 Hook.
   - Tax (3%): 1% Lottery, 1% Volume Rewards, 1% LP/Marketing.
   - Tax Management: Hook intercepts the swap, collects the tax, and converts it to ETH (*Swap-and-Liquify*).
+  - Volume Rewards Mechanic: Distributed every hour. 50% to the Top 10 traders of the hour, 50% proportionally to all traders of the hour. (Requires a claim/pull pattern to prevent gas limit issues).
   - Lottery Mechanic: Volume tracking via the Hook. VRF & Automation draws (via Chainlink).
 - [ ] Base ERC20 Contract Creation.
 

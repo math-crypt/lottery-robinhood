@@ -20,8 +20,11 @@ Taxes are collected and instantly converted to **ETH** during the swap routing p
   - **1% Volume Rewards:** Automatically converted to ETH.
   - **1% Protocol / LP:** Covers Chainlink VRF and Automation gas fees.
 
-### 🏆 Volume Rewards
-Instead of rewarding passive "whales" holding the token, the protocol rewards active ecosystem participants. The Volume Reward pool is distributed proportionally to users based on their trading volume.
+### 🏆 Hourly Volume Rewards
+Instead of rewarding passive "whales" holding the token, the protocol rewards active ecosystem participants. The 1% Volume Reward pot is distributed **every hour** in ETH:
+- **50% of the pot** is distributed to the **Top 10 traders** (by volume) of that hour.
+- **50% of the pot** is distributed proportionally to **all traders** who contributed to the volume during that hour.
+*(Users claim their accumulated ETH rewards via a secure pull-pattern to ensure network efficiency).*
 
 ### 🎟️ Daily On-Chain Lottery
 - Users receive **1 Lottery Ticket** for every `0.1 ETH` of qualifying trading volume.
