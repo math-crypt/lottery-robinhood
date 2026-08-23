@@ -16,7 +16,7 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
 
 ### Phase 1.5: Infrastructure & Transparency
 - [ ] Draft Whitepaper (mechanics, tokenomics, vision).
-- [ ] Setup public GitHub repository with a clear README.
+- [x] Setup public GitHub repository with a clear README.
 
 ### Phase 2: Specific Mechanics (Lottery & Robinhood V4 Hook)
 - [ ] Implement tax collection system in the V4 Hook (`afterSwap`).
