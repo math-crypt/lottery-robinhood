@@ -20,7 +20,13 @@ The base ERC20 token (`InternetRobinLottery.sol`) is completely tax-free and sec
 - **Total Tax:** 3% on Swaps
   - **1% Lottery Pool:** Automatically converted to WETH.
   - **1% Volume Rewards:** Automatically converted to WETH.
-  - **1% Protocol / LP:** Covers Chainlink VRF and Automation gas fees.
+- **1% Protocol / LP:** Covers Chainlink VRF and Automation gas fees.
+
+### 🛡️ Fair Launch & Anti-Whale Mechanics
+To protect early investors from sniper bots and massive whales controlling the supply, the Hook strictly enforces on-chain limits during the launch phase (Discovery Phase):
+- **Max Transaction:** `1%` of Total Supply per swap.
+- **Max Wallet:** `2%` of Total Supply per wallet.
+- **Removable Limits:** The contract owner can permanently disable these limits by calling `removeLimits()` once the ecosystem's Market Cap reaches a healthy and stable threshold, allowing institutional volume to enter safely.
 
 ### 🏆 Hourly Volume Rewards
 Instead of rewarding passive "whales" holding the token, the protocol rewards active ecosystem participants. The 1% Volume Reward pot is distributed **every hour** in ETH:

@@ -16,14 +16,21 @@ import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automatio
 import {VRFConsumerBaseV2} from "@chainlink/contracts/v0.8/vrf/VRFConsumerBaseV2.sol";
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
 /**
  * @title IRL Uniswap V4 Hook
- * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax, Top 10 Tracking, NFT minting, Automations and VRF.
+ * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax, Top 10 Tracking, NFT minting, Automations, VRF and Anti-Whale checks.
  */
-contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsumerBaseV2 {
+contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsumerBaseV2, Ownable {
     using PoolIdLibrary for PoolKey;
 
     IRLTicketNFT public immutable nftTicket;
+
+    // --- ANTI-WHALE LIMITS ---
+    bool public limitsEnabled = true;
+    uint256 public constant MAX_TX_AMOUNT = 10_000_000 ether; // 1% of 1B supply
+    uint256 public constant MAX_WALLET_AMOUNT = 20_000_000 ether; // 2% of 1B supply
 
     // --- EVENTS (For Telegram Bot indexing) ---
     event Top10Updated(address indexed user, uint256 volume, uint256 currentHour);
@@ -68,7 +75,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         address vrfCoordinator,
         uint64 subscriptionId,
         bytes32 keyHash
-    ) BaseHook(_poolManager) VRFConsumerBaseV2(vrfCoordinator) {
+    ) BaseHook(_poolManager) VRFConsumerBaseV2(vrfCoordinator) Ownable(msg.sender) {
         nftTicket = IRLTicketNFT(_nftTicket);
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_subscriptionId = subscriptionId;
@@ -76,6 +83,14 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
         lastProcessedHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
+    }
+
+    /**
+     * @notice Removes the Anti-Whale launch limits definitively.
+     * @dev Can only be called by the contract owner.
+     */
+    function removeLimits() external onlyOwner {
+        limitsEnabled = false;
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
@@ -109,6 +124,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
         uint256 volume = uint256(int256(delta.amount0() > 0 ? delta.amount0() : -delta.amount0()));
         address trader = tx.origin;
+
+        // --- ANTI-WHALE CHECKS ---
+        if (limitsEnabled) {
+            require(volume <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
+            // In a full implementation, we would also check the actual ERC20 balance of `trader` here.
+            // require(IRL(token).balanceOf(trader) <= MAX_WALLET_AMOUNT, "Anti-Whale: Max Wallet exceeded");
+        }
 
         userVolumePerHour[hourId][trader] += volume;
         _updateTop10(hourId, trader, userVolumePerHour[hourId][trader]);

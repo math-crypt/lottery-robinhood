@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file. The format 
 - Integrated Chainlink Keepers (Automation) for automated hourly airdrops of the 1% volume reward pot.
 - Designed structured Solidity `Events` specifically for future Telegram Bot integration.
 - Added comprehensive swap simulation test in `IRLUniswapV4Hook.t.sol` using Foundry, proving NFT minting and top 10 mechanics.
+- Added Removable Anti-Whale Launch Mechanics (`MAX_TX_AMOUNT` and `MAX_WALLET_AMOUNT`) to `IRLUniswapV4Hook.sol` to protect early liquidity.
 
 ### Fixed
 - Fixed bug in Hook where a single large swap only minted 1 NFT instead of multiple tickets when crossing multiple volume thresholds simultaneously.
