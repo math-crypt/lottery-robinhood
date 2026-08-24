@@ -40,6 +40,6 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Defined architecture: **Robinhood Chain (Arbitrum L2)**, **Uniswap V4 Hook**, Chainlink VRF & Keepers.
   - Authored Grant Proposal for funding.
   - Built core Smart Contracts (`InternetRobinLottery.sol`, `IRLTicketNFT.sol`, `IRLUniswapV4Hook.sol`).
-  - Added NFT Minting logic and Telegram Events.
+  - Added NFT Minting logic, Telegram Events, and removable Anti-Whale protections (Max Tx / Max Wallet).
   - Executed successful Foundry simulations (`IRLUniswapV4Hook.t.sol`), testing swap tracking and NFT payouts.
   - Pushed all progress to public GitHub.
