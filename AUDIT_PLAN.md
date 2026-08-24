@@ -13,17 +13,17 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Tax Management: Hook intercepts the swap, collects the tax, and converts it to ETH (*Swap-and-Liquify*).
   - Volume Rewards Mechanic: Distributed every hour. 50% to the Top 10 traders of the hour, 50% proportionally to all traders of the hour. (Requires a claim/pull pattern to prevent gas limit issues).
   - Lottery Mechanic: Volume tracking via the Hook. VRF & Automation draws (via Chainlink).
-- [ ] Base ERC20 Contract Creation.
+- [x] Base ERC20 Contract Creation.
 
 ### Phase 1.5: Infrastructure & Transparency
-- [ ] Draft Whitepaper (mechanics, tokenomics, vision).
+- [x] Draft Whitepaper / Grant Proposal (mechanics, tokenomics, vision).
 - [x] Setup public GitHub repository with a clear README.
 
 ### Phase 2: Specific Mechanics (Lottery & Robinhood V4 Hook)
-- [ ] Implement tax collection system in the V4 Hook (`afterSwap`).
-- [ ] Implement Lottery mechanic (random selection, participation conditions via VRF).
-- [ ] Implement Robinhood mechanic (redistribution, burn, or charity wallet).
-- [ ] Unit and Integration Tests.
+- [x] Implement tax collection system in the V4 Hook (`afterSwap`).
+- [x] Implement Lottery mechanic (NFT Tickets, Chainlink VRF).
+- [x] Implement Robinhood mechanic (Top 10 leaderboard, Chainlink Keepers).
+- [x] Unit and Integration Tests (Simulation of V4 Swap & Volume Tracking).
 
 ### Phase 3: Deployment & Verification
 - [ ] Deployment Script (Testnet).
@@ -37,5 +37,9 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
 - **2026-08-24**: 
   - Initialized tracking files (AUDIT_PLAN, CHANGELOG, BACKLOG) and agent rules. 
   - Tokenomics validation (3% Tax: 1% Lottery, 1% Volume Rewards, 1% LP/Marketing).
-  - Architectural decisions: Project will be deployed on **Robinhood Chain (L2 Arbitrum)** as a **Uniswap V4 Hook** to enable *Swap-and-Liquify* into ETH without impacting the ERC20.
-  - Foundry installed successfully and Uniswap V4 template initialized. Ready to code the Hook!
+  - Defined architecture: **Robinhood Chain (Arbitrum L2)**, **Uniswap V4 Hook**, Chainlink VRF & Keepers.
+  - Authored Grant Proposal for funding.
+  - Built core Smart Contracts (`InternetRobinLottery.sol`, `IRLTicketNFT.sol`, `IRLUniswapV4Hook.sol`).
+  - Added NFT Minting logic and Telegram Events.
+  - Executed successful Foundry simulations (`IRLUniswapV4Hook.t.sol`), testing swap tracking and NFT payouts.
+  - Pushed all progress to public GitHub.
