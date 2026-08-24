@@ -46,6 +46,13 @@ The Smart Contracts are designed with transparency and community engagement in m
 - `TicketMinted`: Live notification when someone earns a Lottery NFT.
 - `LotteryWinnerDrawn`: Massive celebration alert when the daily VRF draw finds a winner.
 
+### 🛡️ Security & Trust (Anti-Rug)
+To ensure the absolute safety of investor funds, the $IRL ecosystem strictly adheres to DeFi security standards:
+- **Locked Liquidity:** Initial LP tokens (WETH/IRL) will be cryptographically locked in a public third-party locker for 12 months at launch.
+- **Pure ERC20:** The `$IRL` token is a pure, unmodified standard ERC20. There are absolutely **no `mint()`** or **`blacklist()`** functions. The 1 Billion supply is fixed forever.
+- **Renounced Ownership:** Once the initial Market Cap is stabilized and the Anti-Whale `removeLimits()` is executed, the contract ownership will be permanently renounced (`renounceOwnership()`), rendering the code immutable.
+- **Public & Verifiable:** All Hook, NFT, and VRF logic is 100% open-source and will be verified on the block explorer for community auditing.
+
 ## 🛠️ Development (Foundry)
 
 This project is built using [Foundry](https://getfoundry.sh/) and the official Uniswap v4-template.
