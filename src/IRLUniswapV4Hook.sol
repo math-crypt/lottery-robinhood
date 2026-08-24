@@ -119,13 +119,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
         // --- NFT TICKET LOGIC ---
         dailyVolume[dayId][trader] += volume;
-        if (dailyTicketsMinted[dayId][trader] < MAX_TICKETS_PER_DAY) {
-            uint256 currentVolume = dailyVolume[dayId][trader];
+        uint256 currentVolume = dailyVolume[dayId][trader];
+        
+        while (dailyTicketsMinted[dayId][trader] < MAX_TICKETS_PER_DAY) {
             uint256 targetVolume = (dailyTicketsMinted[dayId][trader] + 1) * TICKET_VOLUME_THRESHOLD;
             if (currentVolume >= targetVolume) {
                 dailyTicketsMinted[dayId][trader]++;
                 uint256 tokenId = nftTicket.mintTicket(trader);
                 emit TicketMinted(trader, tokenId);
+            } else {
+                break;
             }
         }
 
