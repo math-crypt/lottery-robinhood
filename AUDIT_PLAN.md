@@ -42,4 +42,5 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Built core Smart Contracts (`InternetRobinLottery.sol`, `IRLTicketNFT.sol`, `IRLUniswapV4Hook.sol`).
   - Added NFT Minting logic, Telegram Events, and removable Anti-Whale protections (Max Tx / Max Wallet).
   - Executed successful Foundry simulations (`IRLUniswapV4Hook.t.sol`), testing swap tracking and NFT payouts.
+  - Received external ZAUTH audit (62/100). Implemented critical security fixes (ReentrancyGuard, active ETH distributions, Pot variables).
   - Pushed all progress to public GitHub.
