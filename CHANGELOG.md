@@ -21,3 +21,6 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Fixed
 - Fixed bug in Hook where a single large swap only minted 1 NFT instead of multiple tickets when crossing multiple volume thresholds simultaneously.
+- **Security:** Added `ReentrancyGuard` to prevent reentrancy attacks during ETH distribution in automated functions (`performUpkeep`).
+- **Security:** Replaced stubbed prize distribution with live, secure ETH transfers (`.call{value: prize}("")`) for daily lottery winners and top 10 queue batches.
+- **Logic:** Replaced placeholder `TODO` in `_afterSwap` with actual simulated volume tax distribution (splitting the 3% into `lotteryPot` and `hourlyRewardPot` state variables).
