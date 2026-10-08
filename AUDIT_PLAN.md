@@ -31,7 +31,7 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
 - [x] Update Volume Reward mechanics to grant a percentage bonus based on staked amounts.
 
 ### Phase 3: Deployment & Verification
-- [ ] Deployment Script (Testnet) & Initial Liquidity setup (10k MC via V4 Hook).
+- [x] Deployment Script (Testnet) & Initial Liquidity setup (20k MC via V4 Hook).
 - [ ] Contract Verification.
 - [ ] Transaction simulations and tax/lottery verification.
 

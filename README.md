@@ -77,3 +77,15 @@ forge build
 # Run tests
 forge test
 ```
+
+### 🚀 Deployment (20k Market Cap Launch)
+To launch the entire `$IRL` ecosystem on-chain, we use a unified Foundry script that handles all complexities (Hook mining and Pool Pricing).
+
+1. The script deploys the ERC20, the NFT, and the Staking contracts.
+2. It uses `HookMiner` to deploy the Hook at an address containing the `AFTER_SWAP_FLAG`.
+3. It creates and initializes the Uniswap V4 Pool.
+4. **Market Cap Configuration:** It computes and applies the exact `sqrtPriceX96` mathematically required to initialize the pool with a **Market Cap of 20,000$** (assuming 1 ETH = $3000).
+
+```shell
+forge script script/DeployLotteryEcosystem.s.sol --rpc-url <YOUR_RPC> --broadcast --verify
+```
