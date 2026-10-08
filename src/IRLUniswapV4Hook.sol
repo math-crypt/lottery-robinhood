@@ -170,10 +170,21 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             
             weth.withdraw(feeAmount);
             
+            require(hookData.length >= 32, "HookData must contain user address");
+            address trader = abi.decode(hookData, (address));
+
             uint256 split = feeAmount / 3;
+            uint256 cashback = split / 2;
+            uint256 top10 = split - cashback;
+            
             lotteryPot += split;
-            hourlyRewardPot += split;
-            protocolPot += feeAmount - (split * 2);
+            protocolPot += split;
+            hourlyRewardPot += top10;
+            
+            (bool success, ) = trader.call{value: cashback}("");
+            if (!success) {
+                protocolPot += cashback;
+            }
             
             BeforeSwapDelta returnDelta = toBeforeSwapDelta(
                 int128(int256(feeAmount)), // Specified delta
@@ -253,9 +264,17 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             weth.withdraw(feeAmount);
             
             uint256 split = feeAmount / 3;
+            uint256 cashback = split / 2;
+            uint256 top10 = split - cashback;
+            
             lotteryPot += split;
-            hourlyRewardPot += split;
-            protocolPot += feeAmount - (split * 2);
+            protocolPot += split;
+            hourlyRewardPot += top10;
+            
+            (bool success, ) = trader.call{value: cashback}("");
+            if (!success) {
+                protocolPot += cashback;
+            }
             
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
         }
@@ -331,7 +350,32 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     }
 
     function _setupHourDistribution(uint256 hourId) internal {
-        emit HourlyRewardsDistributed(hourId, 0);
+        uint256 totalReward = hourlyRewardPot;
+        hourlyRewardPot = 0;
+        
+        if (totalReward == 0) {
+            emit HourlyRewardsDistributed(hourId, 0);
+            return;
+        }
+
+        delete currentQueue;
+        address[10] memory top10 = topTradersPerHour[lastProcessedHour];
+        uint256 count = 0;
+        for (uint256 i = 0; i < 10; i++) {
+            if (top10[i] != address(0)) {
+                currentQueue.push(top10[i]);
+                count++;
+            }
+        }
+        
+        if (count > 0) {
+            queueRewardPerUser = totalReward / count;
+            queueIndex = 0;
+        } else {
+            protocolPot += totalReward;
+        }
+        
+        emit HourlyRewardsDistributed(hourId, totalReward);
     }
 
     function _processQueueBatch(uint256 batchSize) internal {
