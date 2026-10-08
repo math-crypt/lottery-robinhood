@@ -453,7 +453,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     }
 
     function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
-        uint256 dayId = vrfRequestToDayId[requestId];
         uint256 totalTickets = nftTicket.totalTicketsMinted(); 
         
         if (totalTickets > 0) {
