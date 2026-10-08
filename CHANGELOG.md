@@ -25,11 +25,16 @@ All notable changes to this project will be documented in this file. The format 
 - **V4 Custom Accounting**: Completely refactored the tax collection to natively extract WETH on both exactIn and exactOut swaps using `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` with `PoolManager.take()`.
 - Added `protocolPot` and `withdrawProtocolFees()` to ensure the developer can safely extract the 1% unassigned tax.
 
-### Changed
-- Reverted VRF Lottery to a pure Push payout (`call{value}`). If the transfer fails, the ETH elegantly falls back into the `protocolPot` instead of reverting the Chainlink callback.
-
 ### Fixed
 - Fixed bug in Hook where a single large swap only minted 1 NFT instead of multiple tickets when crossing multiple volume thresholds simultaneously.
+- **Logic:** Fixed a critical state variable bug in `IRLUniswapV4Hook.sol` where the hourly distribution queue (`_processQueueBatch`) was reading off the reset data for the new hour instead of the completed hour due to premature state update of `lastProcessedHour`.
+- **Logic:** Replaced placeholder `TODO` in `_afterSwap` with actual simulated volume tax distribution (splitting the 3% into `lotteryPot` and `hourlyRewardPot` state variables).
 - **Security:** Added `ReentrancyGuard` to prevent reentrancy attacks during ETH distribution in automated functions (`performUpkeep`).
 - **Security:** Replaced stubbed prize distribution with live, secure ETH transfers (`.call{value: prize}("")`) for daily lottery winners and top 10 queue batches.
-- **Logic:** Replaced placeholder `TODO` in `_afterSwap` with actual simulated volume tax distribution (splitting the 3% into `lotteryPot` and `hourlyRewardPot` state variables).
+
+### Changed
+- Refactored NFT Ticket staking scaling: Volume threshold is now tracked in WETH rather than tokens (0.05 WETH threshold) to prevent instant cap-outs. Maximum bonus tickets via staking is now exponentially capped (x2 required for each additional max ticket).
+- **NFT Independence:** Separated Volume tickets and Staking tickets. Staking tickets are now independent of the volume base limit (which is capped strictly at 6 tickets/day).
+- Added `claimDailyStakingTickets()` to allow stakers to freely mint their daily bonus tickets without trading. If they trade, it auto-mints to save gas.
+- Restored simpler tech stack badges (Robinhood Chain, Uniswap V4, Foundry) in `README.md`.
+- Reverted VRF Lottery to a pure Push payout (`call{value}`). If the transfer fails, the ETH elegantly falls back into the `protocolPot` instead of reverting the Chainlink callback.

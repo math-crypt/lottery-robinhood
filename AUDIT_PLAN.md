@@ -33,7 +33,7 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
 ### Phase 3: Deployment & Verification
 - [x] Deployment Script (Testnet) & Initial Liquidity setup (20k MC via V4 Hook).
 - [ ] Contract Verification.
-- [ ] Transaction simulations and tax/lottery verification.
+- [x] Transaction simulations and tax/lottery verification.
 
 ---
 
@@ -56,3 +56,10 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - **Refactored V4 Hook for Real Tax Collection (Swap-and-Liquify)**: Implemented advanced `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` to natively intercept and extract WETH on both Buys and Sells natively using V4 `PoolManager.take()`.
   - Reverted Lottery to a pure Push pattern that gracefully ignores failures (unclaimed ETH falls back to the Developer protocol pot) to keep user experience frictionless.
   - Updated deployment and test scripts to accommodate new WETH hook arguments and dynamic flags.
+
+- **2026-10-09**:
+  - Updated README.md logos to the previous simpler badges.
+  - Setup and executed `SimulationEcosystem.t.sol` to simulate the full ecosystem (swaps, tax collection, hourly distributions, end-of-day lottery).
+  - Fixed Uniswap V4 Permit2 approvals for WETH in test environments.
+  - Fixed a critical state variable bug in `IRLUniswapV4Hook.sol` where the hourly distribution queue was reading off the reset data for the new hour instead of the completed hour.
+  - Rebalanced the NFT Ticket staking logic: Tracked volume in WETH (0.05 WETH threshold per ticket) to prevent inflated volume calculations. Capped maximum staking tickets exponentially (x2 required for each additional max ticket).

@@ -21,3 +21,11 @@ Afin de pouvoir reprendre le développement facilement lors de futures sessions 
    - Mets à jour `CHANGELOG.md` sous la section `## [Unreleased]` avec toutes les modifications techniques, de code ou d'architecture.
 
 Ne pars jamais sur une tâche non demandée, même si elle te paraît "rapide" ou "évidente".
+
+## 🏗️ Architecture et Contraintes
+1. **Interface Utilisateur :**
+   - **IL N'Y A PAS DE FRONT-END.** L'interaction se fait *exclusivement* via le **Bot Telegram**.
+   - Ne propose jamais de développer ou de modifier un site web / dApp frontend. Concentre-toi uniquement sur les smart contracts et le bot Telegram (dossier `bot/`).
+2. **Gestion de Version (GitHub) :**
+   - Lors d'un commit ou d'un push, **ne mets que les fichiers utiles en production**.
+   - **EXCLURE** catégoriquement les dossiers de tests (`test/`), les scripts de simulation inutiles en prod, ou tout autre fichier de dev local. Utilise `.gitignore` ou sois sélectif dans tes commandes `git add`.

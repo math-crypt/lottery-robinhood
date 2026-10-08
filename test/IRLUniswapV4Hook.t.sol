@@ -171,9 +171,9 @@ contract IRLUniswapV4HookTest is BaseTest {
         // Volume should be equal to amountIn (simplified in hook delta logic)
         assertEq(trackedVolume, amountIn);
 
-        // 3. Verify Top 10 Leaderboard
-        address top1 = hook.topTradersPerHour(hourId, 0);
-        assertEq(top1, actualTrader); // Our trader should be #1
+        // 3. Verify Dynamic Score Tracking
+        uint256 score = hook.userHourlyScore(hourId, actualTrader);
+        assertEq(score, amountIn); // Without staking, score should equal volume
 
         // 4. Verify NFT Minting
         // Since amountIn (0.5 ether) > TICKET_VOLUME_THRESHOLD (0.1 ether)

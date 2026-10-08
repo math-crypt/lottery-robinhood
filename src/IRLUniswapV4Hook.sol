@@ -23,10 +23,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IWETH {
-    function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
-        disableAntiWhaleSqrtPrice = _price;
-    }
-
     function withdraw(uint wad) external;
 }
 
@@ -61,9 +57,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     event LotteryWinnerDrawn(address indexed winner, uint256 tokenId, uint256 prize);
     event LotteryRequested(uint256 requestId, uint256 dayId);
 
+    function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
+        disableAntiWhaleSqrtPrice = _price;
+    }
+
     // --- STATE ---
-    uint256 public constant TICKET_VOLUME_THRESHOLD = 0.1 ether;
-    uint256 public constant MAX_TICKETS_PER_DAY = 5;
+    uint256 public constant TICKET_VOLUME_THRESHOLD = 0.05 ether; // 0.05 WETH threshold for 1 NFT
+    uint256 public constant MAX_TICKETS_PER_DAY = 6;
 
     // Tracking
     mapping(uint256 => mapping(address => uint256)) public userVolumePerHour;
@@ -73,13 +73,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     mapping(uint256 => address[]) public allTradersPerHour;
     mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
     
-    mapping(uint256 => mapping(address => uint256)) public userCashbackPerHour;
-    mapping(uint256 => address[]) public allTradersPerHour;
-    mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
-    
+
     // Daily tracking for NFT
     mapping(uint256 => mapping(address => uint256)) public dailyVolume;
     mapping(uint256 => mapping(address => uint256)) public dailyTicketsMinted;
+    mapping(uint256 => mapping(address => uint256)) public dailyStakingTicketsMinted;
 
     // Automation Queue State
     uint256 public lastProcessedHour;
@@ -87,6 +85,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     uint256 public queueIndex;
     uint256 public currentHourTotalReward;
     uint256 public currentHourTotalScore;
+    uint256 public distributingHourId;
 
     // VRF State
     VRFCoordinatorV2Interface COORDINATOR;
@@ -132,6 +131,39 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         
         (bool success, ) = msg.sender.call{value: amount}("");
         require(success, "ETH transfer failed");
+    }
+
+    /**
+     * @notice Allows a user to claim their daily bonus tickets from staking without needing to trade.
+     */
+    function claimDailyStakingTickets() external nonReentrant {
+        uint256 dayId = block.timestamp / 1 days;
+        _mintStakingTickets(msg.sender, dayId);
+    }
+
+    function _mintStakingTickets(address trader, uint256 dayId) internal {
+        uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
+        
+        uint256 extraTickets = 0;
+        uint256 requiredForNext = 100_000 ether;
+        uint256 currentStake = stakedAmount;
+
+        while (currentStake >= requiredForNext) {
+            extraTickets++;
+            currentStake -= requiredForNext;
+            requiredForNext *= 2;
+        }
+
+        uint256 alreadyMinted = dailyStakingTicketsMinted[dayId][trader];
+        if (extraTickets > alreadyMinted) {
+            uint256 toMint = extraTickets - alreadyMinted;
+            dailyStakingTicketsMinted[dayId][trader] += toMint;
+
+            for (uint256 i = 0; i < toMint; i++) {
+                uint256 tokenId = nftTicket.mintTicket(trader);
+                emit TicketMinted(trader, tokenId);
+            }
+        }
     }
 
     /**
@@ -223,7 +255,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 hourId = block.timestamp / 1 hours;
         uint256 dayId = block.timestamp / 1 days;
 
-        uint256 volume = uint256(int256(delta.amount0() > 0 ? delta.amount0() : -delta.amount0()));
+        uint256 volume;
+        if (key.currency0 == Currency.wrap(address(weth))) {
+            volume = uint256(int256(delta.amount0() < 0 ? -delta.amount0() : delta.amount0()));
+        } else {
+            volume = uint256(int256(delta.amount1() < 0 ? -delta.amount1() : delta.amount1()));
+        }
         
         // Tracking trader identity
         require(hookData.length >= 32, "HookData must contain user address");
@@ -254,14 +291,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         userHourlyScore[hourId][trader] += scoreDelta;
         totalHourlyScore[hourId] += scoreDelta;
 
-        // NFTs
+        // Volume NFTs
         dailyVolume[dayId][trader] += volume;
         uint256 currentVolume = dailyVolume[dayId][trader];
         
-        uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
-        uint256 maxTicketsForTrader = MAX_TICKETS_PER_DAY + (stakedAmount / 10_000 ether);
-
-        while (dailyTicketsMinted[dayId][trader] < maxTicketsForTrader) {
+        while (dailyTicketsMinted[dayId][trader] < MAX_TICKETS_PER_DAY) {
             uint256 targetVolume = (dailyTicketsMinted[dayId][trader] + 1) * TICKET_VOLUME_THRESHOLD;
             if (currentVolume >= targetVolume) {
                 dailyTicketsMinted[dayId][trader]++;
@@ -271,6 +305,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
                 break;
             }
         }
+
+        // Staking NFTs Auto-Mint
+        _mintStakingTickets(trader, dayId);
         
         // Fee on unspecified currency
         bool isExactIn = params.amountSpecified < 0;
@@ -339,6 +376,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         (uint8 actionType, uint256 timeId) = abi.decode(performData, (uint8, uint256));
         
         if (actionType == 1) {
+            distributingHourId = lastProcessedHour;
             _setupHourDistribution(lastProcessedHour);
             lastProcessedHour = timeId;
         } else if (actionType == 2) {
@@ -378,7 +416,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 limit = queueIndex + batchSize;
         if (limit > currentQueue.length) limit = currentQueue.length;
 
-        uint256 hourId = lastProcessedHour;
+        uint256 hourId = distributingHourId;
 
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = currentQueue[i];

@@ -1,6 +1,6 @@
 # 🏹 Internet Robinhood Lottery ($IRL)
 
-![Solidity](https://img.shields.io/badge/Solidity-%23363636.svg?style=for-the-badge&logo=solidity&logoColor=white) ![Ethereum](https://img.shields.io/badge/Ethereum-3C3C3D?style=for-the-badge&logo=Ethereum&logoColor=white) ![Uniswap](https://img.shields.io/badge/Uniswap_V4_Hook-FF007A?style=for-the-badge&logo=Uniswap&logoColor=white) ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E)
+![Robinhood Chain](https://img.shields.io/badge/Network-Robinhood_Chain-green) ![Uniswap V4](https://img.shields.io/badge/Uniswap-V4_Hook-pink) ![Foundry](https://img.shields.io/badge/Built_with-Foundry-blue)
 
 ```text
      (
