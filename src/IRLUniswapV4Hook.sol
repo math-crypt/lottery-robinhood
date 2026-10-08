@@ -303,30 +303,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         return (BaseHook.afterSwap.selector, 0);
     }
 
-        }
-
-        if (!inList) {
-            if (top10[9] == address(0) || newVolume > userVolumePerHour[hourId][top10[9]]) {
-                pos = 9;
-                top10[9] = trader;
-            } else {
-                return;
-            }
-        }
-
-        while (pos > 0) {
-            address prevTrader = top10[pos - 1];
-            if (prevTrader == address(0) || newVolume > userVolumePerHour[hourId][prevTrader]) {
-                top10[pos - 1] = trader;
-                top10[pos] = prevTrader;
-                pos--;
-            } else {
-                break;
-            }
-        }
-        
-        emit Top10Updated(trader, newVolume, hourId);
-    }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         uint256 currentHour = block.timestamp / 1 hours;
