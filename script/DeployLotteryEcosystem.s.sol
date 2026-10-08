@@ -46,7 +46,12 @@ contract DeployLotteryEcosystem is Script {
         IRLStaking staking = new IRLStaking(address(irl));
 
         // 2. Mine Hook Address
-        uint160 flags = uint160(Hooks.AFTER_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_SWAP_FLAG | 
+            Hooks.AFTER_SWAP_FLAG | 
+            Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
+            Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+        );
         address vrfCoordinator = 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625; // Dummy VRF
         uint64 subId = 1;
         bytes32 keyHash = 0x474e34a077df58807dbe9c96d3c009b23b3c6d0cce433e59bbf5b34f823bc56c;
@@ -57,7 +62,8 @@ contract DeployLotteryEcosystem is Script {
             address(staking), 
             vrfCoordinator, 
             subId, 
-            keyHash
+            keyHash,
+            weth
         );
 
         // CREATE2 Factory (standard forge testnet factory)
@@ -78,7 +84,8 @@ contract DeployLotteryEcosystem is Script {
             address(staking), 
             vrfCoordinator, 
             subId, 
-            keyHash
+            keyHash,
+            weth
         );
         require(address(hook) == hookAddress, "Hook Address mismatch");
 

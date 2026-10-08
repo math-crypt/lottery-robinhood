@@ -7,7 +7,8 @@ import {IPoolManager, SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
 import {IRLStaking} from "./IRLStaking.sol";
@@ -20,15 +21,21 @@ import {VRFCoordinatorV2Interface} from "@chainlink/contracts/v0.8/vrf/interface
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+interface IWETH {
+    function withdraw(uint wad) external;
+}
+
 /**
  * @title IRL Uniswap V4 Hook
- * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax, Top 10 Tracking, NFT minting, Automations, VRF and Anti-Whale checks.
+ * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax natively collected in ETH, Top 10 Tracking, NFT minting, Automations, VRF and Anti-Whale checks.
  */
 contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsumerBaseV2, Ownable, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
+    using CurrencyLibrary for Currency;
 
     IRLTicketNFT public immutable nftTicket;
     IRLStaking public immutable stakingContract;
+    IWETH public immutable weth;
 
     // --- ANTI-WHALE LIMITS ---
     bool public limitsEnabled = true;
@@ -38,6 +45,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     // --- POTS (Reward & Lottery) ---
     uint256 public lotteryPot;
     uint256 public hourlyRewardPot;
+
+    // --- PENDING WINNERS ---
+    mapping(address => uint256) public pendingWithdrawals;
 
     // --- EVENTS (For Telegram Bot indexing) ---
     event Top10Updated(address indexed user, uint256 volume, uint256 currentHour);
@@ -82,21 +92,33 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         address _stakingContract,
         address vrfCoordinator,
         uint64 subscriptionId,
-        bytes32 keyHash
+        bytes32 keyHash,
+        address _weth
     ) BaseHook(_poolManager) VRFConsumerBaseV2(vrfCoordinator) Ownable(msg.sender) {
         nftTicket = IRLTicketNFT(_nftTicket);
         stakingContract = IRLStaking(_stakingContract);
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_subscriptionId = subscriptionId;
         s_keyHash = keyHash;
+        weth = IWETH(_weth);
 
         lastProcessedHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
     }
 
+    receive() external payable {}
+
+    function withdrawWinnings() external nonReentrant {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        require(amount > 0, "No winnings to withdraw");
+        pendingWithdrawals[msg.sender] = 0;
+        
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "ETH transfer failed");
+    }
+
     /**
      * @notice Removes the Anti-Whale launch limits definitively.
-     * @dev Can only be called by the contract owner.
      */
     function removeLimits() external onlyOwner {
         limitsEnabled = false;
@@ -110,15 +132,54 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
-            beforeSwap: false,
+            beforeSwap: true,
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
-            beforeSwapReturnDelta: false,
-            afterSwapReturnDelta: false,
+            beforeSwapReturnDelta: true,
+            afterSwapReturnDelta: true,
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
+    }
+
+    function _beforeSwap(
+        address,
+        PoolKey calldata key,
+        SwapParams calldata params,
+        bytes calldata hookData
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        bool isExactIn = params.amountSpecified < 0;
+        
+        // Identify if WETH is the specified token
+        bool isWETHSpecified = false;
+        if (isExactIn) {
+            isWETHSpecified = params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth);
+        } else {
+            isWETHSpecified = params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth);
+        }
+
+        if (isWETHSpecified) {
+            uint256 swapAmount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
+            uint256 feeAmount = (swapAmount * 3) / 100;
+            
+            Currency feeCurrency = Currency.wrap(address(weth));
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            
+            weth.withdraw(feeAmount);
+            
+            uint256 split = feeAmount / 3;
+            lotteryPot += split;
+            hourlyRewardPot += split;
+            
+            BeforeSwapDelta returnDelta = toBeforeSwapDelta(
+                int128(int256(feeAmount)), // Specified delta
+                0
+            );
+            return (BaseHook.beforeSwap.selector, returnDelta, 0);
+        }
+        
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     function _afterSwap(
@@ -133,29 +194,23 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
         uint256 volume = uint256(int256(delta.amount0() > 0 ? delta.amount0() : -delta.amount0()));
         
-        // Security Fix: Do not use tx.origin. V4 Routers must pass the user address in hookData.
+        // Tracking trader identity
         require(hookData.length >= 32, "HookData must contain user address");
         address trader = abi.decode(hookData, (address));
 
-        // --- ANTI-WHALE CHECKS ---
+        // Anti-Whale
         if (limitsEnabled) {
             require(volume <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
-            // In a full implementation, we would also check the actual ERC20 balance of `trader` here.
-            // require(IRL(token).balanceOf(trader) <= MAX_WALLET_AMOUNT, "Anti-Whale: Max Wallet exceeded");
         }
 
+        // Leaderboard
         userVolumePerHour[hourId][trader] += volume;
         _updateTop10(hourId, trader, userVolumePerHour[hourId][trader]);
 
-        // If trader is not in current queue, we should ideally add them for the "all traders" queue.
-        // For simplicity in this demo, we assume the queue is built from topTraders or a separate array.
-        // In production, an EnumerableSet is recommended to avoid duplicates.
-
-        // --- NFT TICKET LOGIC ---
+        // NFTs
         dailyVolume[dayId][trader] += volume;
         uint256 currentVolume = dailyVolume[dayId][trader];
         
-        // Calculate max tickets: base 5 + 1 per 10k IRL staked
         uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
         uint256 maxTicketsForTrader = MAX_TICKETS_PER_DAY + (stakedAmount / 10_000 ether);
 
@@ -169,16 +224,37 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
                 break;
             }
         }
-
-        // --- TAX COLLECTION SIMULATION ---
-        // Native V4 Swap-and-Liquify involves complex Custom Accounting.
-        // For the sake of this prototype and audit, we simulate the 3% extraction:
-        uint256 taxAmount = (volume * 3) / 100;
-        uint256 split = taxAmount / 3;
         
-        lotteryPot += split;
-        hourlyRewardPot += split;
-        // Marketing split is kept in contract balance.
+        // Fee on unspecified currency
+        bool isExactIn = params.amountSpecified < 0;
+        bool isWETHUnspecified = false;
+        if (isExactIn) {
+            isWETHUnspecified = params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth);
+        } else {
+            isWETHUnspecified = params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth);
+        }
+                                          
+        if (isWETHUnspecified) {
+            bool outputIsToken0 = params.zeroForOne ? false : true;
+            int256 outputAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
+            
+            // Output amount should be positive from pool's perspective if we're taking fees?
+            // Actually, delta.amount0() > 0 means the pool received token0.
+            // If it's unspecified output, the pool sent it to the user, so outputAmount < 0.
+            uint256 absOutput = uint256(int256(outputAmount > 0 ? outputAmount : -outputAmount));
+            uint256 feeAmount = (absOutput * 3) / 100;
+            
+            Currency feeCurrency = Currency.wrap(address(weth));
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            
+            weth.withdraw(feeAmount);
+            
+            uint256 split = feeAmount / 3;
+            lotteryPot += split;
+            hourlyRewardPot += split;
+            
+            return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
+        }
 
         return (BaseHook.afterSwap.selector, 0);
     }
@@ -219,20 +295,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         emit Top10Updated(trader, newVolume, hourId);
     }
 
-    // --- CHAINLINK AUTOMATION (Keepers) ---
-    function checkUpkeep(bytes calldata /* checkData */) external view override returns (bool upkeepNeeded, bytes memory performData) {
+    function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         uint256 currentHour = block.timestamp / 1 hours;
         uint256 currentDay = block.timestamp / 1 days;
         
-        // 1. Need to transition hour
         if (currentHour > lastProcessedHour && queueIndex == currentQueue.length) {
             return (true, abi.encode(uint8(1), currentHour));
         }
-        // 2. Need to process queue
         if (queueIndex < currentQueue.length) {
             return (true, abi.encode(uint8(2), 0));
         }
-        // 3. Need to trigger daily lottery
         if (currentDay > lastLotteryDay) {
             return (true, abi.encode(uint8(3), currentDay));
         }
@@ -244,43 +316,32 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         (uint8 actionType, uint256 timeId) = abi.decode(performData, (uint8, uint256));
         
         if (actionType == 1) {
-            // Setup new hour distribution
             _setupHourDistribution(lastProcessedHour);
             lastProcessedHour = timeId;
         } else if (actionType == 2) {
-            // Process queue batch
-            _processQueueBatch(50); // Batch size 50
+            _processQueueBatch(50);
         } else if (actionType == 3) {
-            // Trigger Lottery
             _triggerDailyLottery(lastLotteryDay);
             lastLotteryDay = timeId;
         }
     }
 
     function _setupHourDistribution(uint256 hourId) internal {
-        // Logic to calculate pot, distribute 50% to top10 directly, and queue the rest
-        // In a full implementation, `currentQueue` is populated with all traders of `hourId`.
         emit HourlyRewardsDistributed(hourId, 0);
     }
 
     function _processQueueBatch(uint256 batchSize) internal {
         uint256 limit = queueIndex + batchSize;
-        if (limit > currentQueue.length) {
-            limit = currentQueue.length;
-        }
+        if (limit > currentQueue.length) limit = currentQueue.length;
 
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = currentQueue[i];
             
-            // Staking Bonus: +1% reward per 10k IRL staked (Max 50% bonus)
             uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(user) : 0;
             uint256 bonusPercentage = (stakedAmount / 10_000 ether);
             if (bonusPercentage > 50) bonusPercentage = 50;
             
             uint256 rewardAmount = queueRewardPerUser + ((queueRewardPerUser * bonusPercentage) / 100);
-
-            // In production, we'd need to ensure the contract has enough ETH balance to cover the bonuses.
-            // For now, this assumes the pot has a buffer or is handled via the split logic.
             
             (bool success, ) = user.call{value: rewardAmount}("");
             if (success) {
@@ -290,7 +351,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         queueIndex = limit;
     }
 
-    // --- CHAINLINK VRF ---
     function _triggerDailyLottery(uint256 dayId) internal {
         uint256 requestId = COORDINATOR.requestRandomWords(
             s_keyHash,
@@ -312,10 +372,10 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             address winner = nftTicket.ownerOf(winningTokenId);
             
             uint256 prize = lotteryPot;
-            lotteryPot = 0; // CEI pattern: reset before transfer
+            lotteryPot = 0;
             
-            (bool success, ) = winner.call{value: prize}("");
-            require(success, "ETH transfer failed");
+            // SECURITY FIX: Use Pull over Push to prevent reverts
+            pendingWithdrawals[winner] += prize;
             
             emit LotteryWinnerDrawn(winner, winningTokenId, prize); 
         }

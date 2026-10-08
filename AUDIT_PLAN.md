@@ -51,5 +51,8 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Pushed all progress to public GitHub.
   
 - **2026-10-08**:
-  - Updated plan to include new ideas from user: a staking mechanism for bonus lottery chances and reward percentages, and a 10k Market Cap deployment via V4 Hook.
+  - Updated plan to include new ideas from user: a staking mechanism for bonus lottery chances and reward percentages, and a 20k Market Cap deployment via V4 Hook.
   - Added Phase 2.5 for Staking Mechanics and updated Phase 3 in AUDIT_PLAN.md.
+  - **Refactored V4 Hook for Real Tax Collection (Swap-and-Liquify)**: Implemented advanced `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` to natively intercept and extract WETH on both Buys and Sells natively using V4 `PoolManager.take()`.
+  - Replaced VRF Lottery push mechanism with a secure Pull pattern (`pendingWithdrawals`) to avoid DOS vectors from failing `call{value}` operations.
+  - Updated deployment and test scripts to accommodate new WETH hook arguments and dynamic flags.

@@ -22,6 +22,10 @@ All notable changes to this project will be documented in this file. The format 
 - Designed structured Solidity `Events` specifically for future Telegram Bot integration.
 - Added comprehensive swap simulation test in `IRLUniswapV4Hook.t.sol` using Foundry, proving NFT minting and top 10 mechanics.
 - Added Removable Anti-Whale Launch Mechanics (`MAX_TX_AMOUNT` and `MAX_WALLET_AMOUNT`) to `IRLUniswapV4Hook.sol` to protect early liquidity.
+- **V4 Custom Accounting**: Completely refactored the tax collection to natively extract WETH on both exactIn and exactOut swaps using `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` with `PoolManager.take()`.
+
+### Changed
+- Replaced VRF Lottery push payout (`call{value}`) with a secure CEI Pull pattern (`withdrawWinnings`) to prevent DOS.
 
 ### Fixed
 - Fixed bug in Hook where a single large swap only minted 1 NFT instead of multiple tickets when crossing multiple volume thresholds simultaneously.

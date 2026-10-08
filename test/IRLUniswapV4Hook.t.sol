@@ -26,6 +26,19 @@ import {InternetRobinLottery} from "../src/InternetRobinLottery.sol";
 // Mock VRF
 import {VRFCoordinatorV2Mock} from "@chainlink/contracts/v0.8/vrf/mocks/VRFCoordinatorV2Mock.sol";
 
+contract MockWETH {
+    mapping(address => uint256) public balanceOf;
+    function deposit() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+    function withdraw(uint256 wad) external {
+        require(balanceOf[msg.sender] >= wad, "Insufficient WETH");
+        balanceOf[msg.sender] -= wad;
+        (bool success, ) = msg.sender.call{value: wad}("");
+        require(success, "ETH transfer failed");
+    }
+}
+
 contract IRLUniswapV4HookTest is BaseTest {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
@@ -62,13 +75,22 @@ contract IRLUniswapV4HookTest is BaseTest {
         nft = new IRLTicketNFT(address(this));
 
         // 3. Deploy Hook (requires careful flag generation)
-        address flags = address(
-            uint160(Hooks.AFTER_SWAP_FLAG) ^ (0x4444 << 144)
+        uint160 hookFlags = uint160(
+            Hooks.BEFORE_SWAP_FLAG | 
+            Hooks.AFTER_SWAP_FLAG | 
+            Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
+            Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
+        address flags = address(hookFlags ^ (0x4444 << 144));
         
-        bytes memory constructorArgs = abi.encode(poolManager, address(nft), address(vrfMock), subId, bytes32(0));
+        MockWETH mockWeth = new MockWETH();
+        // Assume currency0 is WETH for test simplicity
+        // We need to bypass the actual WETH call if currency0 is a MockERC20 in BaseTest.
+        // Actually, if we just pass mockWeth, the hook will call mockWeth.withdraw()
+        
+        bytes memory constructorArgs = abi.encode(poolManager, address(nft), address(0), address(vrfMock), subId, bytes32(0), address(mockWeth));
         deployCodeTo("IRLUniswapV4Hook.sol:IRLUniswapV4Hook", constructorArgs, flags);
-        hook = IRLUniswapV4Hook(flags);
+        hook = IRLUniswapV4Hook(payable(flags));
 
         // Give Hook permission to mint NFTs
         nft.transferOwnership(address(hook));
