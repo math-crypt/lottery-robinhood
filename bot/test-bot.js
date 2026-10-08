@@ -8,11 +8,20 @@ const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || "0xTokenAddress";
 const NFT_ADDRESS = process.env.NFT_ADDRESS || "0xNftAddress";
 
 bot.start((ctx) => {
-    ctx.reply('Welcome to the official Internet Robin Lottery ($IRL) bot! 🏹\n\nUse the menu to explore the project, check the pots, or view the contracts.');
+    ctx.reply('Welcome to the official Internet Robinhood Lottery ($IRL) bot! 🏹\n\nUse the menu to explore the project, check the pots, or view the contracts.');
+});
+
+bot.on('new_chat_members', (ctx) => {
+    const newMembers = ctx.message.new_chat_members;
+    for (const member of newMembers) {
+        if (member.is_bot) continue;
+        const name = member.first_name || 'Robinhood';
+        ctx.reply(`Welcome to the Internet Robinhood Lottery ($IRL) community, ${name}! 🏹\n\nWe steal from the whales to give back to the community!\nType /about to learn how our automated Uniswap V4 tax redistribution works, or check the menu to view the active prize pots.`);
+    }
 });
 
 bot.command('about', (ctx) => {
-    const text = `🏹 *About Internet Robin Lottery ($IRL)* 🏹\n\nWe steal from the whales to give to the community! $IRL is an innovative DeFi ecosystem running on the Robinhood Chain.\n\nBy holding and trading $IRL, you automatically participate in a revolutionary redistribution system powered by Uniswap V4 Hooks.`;
+    const text = `🏹 *About Internet Robinhood Lottery ($IRL)* 🏹\n\nWe steal from the whales to give to the community! $IRL is an innovative DeFi ecosystem running on the Robinhood Chain.\n\nBy holding and trading $IRL, you automatically participate in a revolutionary redistribution system powered by Uniswap V4 Hooks.`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
@@ -66,7 +75,7 @@ bot.command('test', async (ctx) => {
 bot.launch().then(() => {
     console.log("Test Bot is running! Go to Telegram and type /test or /about to see the new messages.");
     bot.telegram.setMyCommands([
-        { command: 'about', description: 'Learn about the Internet Robin Lottery project' },
+        { command: 'about', description: 'Learn about the Internet Robinhood Lottery project' },
         { command: 'tokenomics', description: 'View the taxes and pot distributions' },
         { command: 'contracts', description: 'View official smart contract addresses' },
         { command: 'tickets', description: 'View the number of lottery tickets in play' },
