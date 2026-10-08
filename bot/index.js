@@ -27,15 +27,15 @@ const nftContract = new ethers.Contract(NFT_ADDRESS, nftAbi, provider);
 // Channel ID to announce events
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-bot.start((ctx) => ctx.reply('Bienvenue sur le bot officiel de Internet Robin Lottery ($IRL) ! 🏹\n\nCommandes disponibles :\n/tickets - Voir le nombre de tickets de loterie en jeu\n/pot - Voir la taille actuelle des cagnottes'));
+bot.start((ctx) => ctx.reply('Welcome to the official Internet Robin Lottery ($IRL) bot! 🏹\n\nAvailable commands:\n/tickets - View the number of lottery tickets in play\n/pot - View the current size of the prize pots'));
 
 bot.command('tickets', async (ctx) => {
     try {
         const total = await nftContract.totalTicketsMinted();
-        ctx.reply(`🎟️ Actuellement, *${total.toString()} tickets* ont été générés pour la loterie d'aujourd'hui !`, { parse_mode: 'Markdown' });
+        ctx.reply(`🎟️ Currently, *${total.toString()} tickets* have been generated for today's lottery!`, { parse_mode: 'Markdown' });
     } catch (error) {
         console.error(error);
-        ctx.reply("❌ Impossible de lire les données du contrat.");
+        ctx.reply("❌ Unable to read contract data.");
     }
 });
 
@@ -47,10 +47,10 @@ bot.command('pot', async (ctx) => {
         const lotteryEth = parseFloat(ethers.formatEther(lotteryPot)).toFixed(4);
         const rewardEth = parseFloat(ethers.formatEther(rewardPot)).toFixed(4);
         
-        ctx.reply(`💰 *Cagnottes Actuelles* 💰\n\n🏆 Loterie du jour : ${lotteryEth} ETH\n⏱️ Récompenses horaires : ${rewardEth} ETH`, { parse_mode: 'Markdown' });
+        ctx.reply(`💰 *Current Prize Pots* 💰\n\n🏆 Today's Lottery: ${lotteryEth} ETH\n⏱️ Hourly Rewards: ${rewardEth} ETH`, { parse_mode: 'Markdown' });
     } catch (error) {
         console.error(error);
-        ctx.reply("❌ Impossible de lire les données du contrat.");
+        ctx.reply("❌ Unable to read contract data.");
     }
 });
 
@@ -58,17 +58,23 @@ bot.command('pot', async (ctx) => {
 async function setupListeners() {
     console.log("Listening for Smart Contract events...");
 
-    hookContract.on("LotteryWinnerDrawn", (winner, tokenId, prize, event) => {
+    hookContract.on("LotteryWinnerDrawn", async (winner, tokenId, prize, event) => {
         const prizeEth = parseFloat(ethers.formatEther(prize)).toFixed(4);
-        const message = `🎉 *NOUVEAU GAGNANT DE LA LOTERIE !* 🎉\n\nLe ticket #${tokenId.toString()} vient d'être tiré au sort par Chainlink VRF !\n\n👤 Gagnant : \`${winner}\`\n💸 Gain : *${prizeEth} ETH* transférés instantanément !\n\nFélicitations au gagnant ! 🏹`;
+        const message = `🎉 *NEW LOTTERY WINNER!* 🎉\n\nTicket #${tokenId.toString()} was just drawn by Chainlink VRF!\n\n👤 Winner: \`${winner}\`\n💸 Prize: *${prizeEth} ETH* transferred instantly!\n\nCongratulations to the winner! 🏹`;
         
         if(CHANNEL_ID) {
-            bot.telegram.sendMessage(CHANNEL_ID, message, { parse_mode: 'Markdown' }).catch(console.error);
+            try {
+                const msg = await bot.telegram.sendMessage(CHANNEL_ID, message, { parse_mode: 'Markdown' });
+                // Pin the winning message
+                await bot.telegram.pinChatMessage(CHANNEL_ID, msg.message_id);
+            } catch (error) {
+                console.error("Error sending or pinning message:", error);
+            }
         }
     });
 
     hookContract.on("HourlyRewardsDistributed", (currentHour, totalPotDistributed, event) => {
-        const message = `⏱️ *RÉCOMPENSES HORAIRES DISTRIBUÉES* ⏱️\n\nLa cagnotte de l'heure vient d'être airdroppée automatiquement aux Top Traders et à la communauté !\n\nTradez $IRL pour participer à la prochaine distribution ! 🏹`;
+        const message = `⏱️ *HOURLY REWARDS DISTRIBUTED* ⏱️\n\nThe hourly pot has just been automatically airdropped to the Top Traders and the community!\n\nTrade $IRL to participate in the next distribution! 🏹`;
         
         if(CHANNEL_ID) {
             bot.telegram.sendMessage(CHANNEL_ID, message, { parse_mode: 'Markdown' }).catch(console.error);
@@ -77,7 +83,14 @@ async function setupListeners() {
 }
 
 bot.launch().then(() => {
-    console.log("Bot Telegram démarré avec succès !");
+    console.log("Telegram Bot successfully started!");
+    
+    // Set bot commands menu
+    bot.telegram.setMyCommands([
+        { command: 'tickets', description: 'View the number of lottery tickets in play' },
+        { command: 'pot', description: 'View the current size of the prize pots' }
+    ]).catch(console.error);
+
     setupListeners();
 }).catch(console.error);
 
