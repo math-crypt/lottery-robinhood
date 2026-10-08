@@ -50,8 +50,32 @@ bot.on('new_chat_members', (ctx) => {
 });
 
 bot.command('about', (ctx) => {
-    const text = `🏹 *About Internet Robinhood Lottery ($IRL)* 🏹\n\nWe steal from the whales to give back to the community! $IRL is an innovative DeFi ecosystem running on the Robinhood Chain, utilizing cutting-edge **Uniswap V4 Hooks** to create a fair, gamified, and highly rewarding environment.\n\n🌟 *Core Mechanics:*\n\n1️⃣ **The Daily Lottery (Chainlink VRF)**\nTrade $IRL to accumulate volume. Every time you cross the volume threshold, an **NFT Ticket** is automatically minted to your wallet. Every day, a Chainlink VRF oracle draws a random winning ticket, and the holder instantly receives the entire Daily Lottery Pot in ETH!\n\n2️⃣ **Hourly Rewards (The Robinhood Split)**\nThe 1% Hourly Reward Pot is split in two: **50%** is airdropped to the Top 10 traders of the hour, and the other **50%** is automatically redistributed to all traders on every single trade! The more volume you generate, the higher your rank, and the bigger your share of the ETH airdrops.\n\n3️⃣ **Staking Multipliers**\nStake your $IRL tokens to unlock powerful boosts! Stakers receive **bonus NFT Tickets** for the daily lottery and up to a **50% bonus multiplier** on their hourly ETH rewards.\n\n4️⃣ **Anti-Whale Protection**\nTo protect early liquidity, strict maximum transaction sizes and wallet holdings are enforced at launch, ensuring a fair distribution starting from our $20k initial Market Cap.\n\n*Zero Sell Pressure*: All ecosystem taxes are collected natively in WETH directly from the liquidity pool (Swap-and-Liquify via V4). The chart never dumps to fund the lottery!\n\nUse /tokenomics to see the exact tax breakdown, or /contracts to verify our code.`;
+    const text = `🏹 *About Internet Robinhood Lottery ($IRL)* 🏹
+
+We steal from the whales to give back to the community! $IRL is an innovative DeFi ecosystem running on the Robinhood Chain, utilizing cutting-edge **Uniswap V4 Hooks** to create a fair, gamified, and highly rewarding environment.
+
+🌟 *Core Mechanics:*
+
+1️⃣ **The Daily Lottery (Chainlink VRF)**
+Trade $IRL to accumulate volume. Every time you cross the volume threshold, an **NFT Ticket** is automatically minted to your wallet. Every day, a Chainlink VRF oracle draws a random winning ticket, and the holder instantly receives the entire Daily Lottery Pot in ETH!
+
+2️⃣ **Hourly Rewards (The Robinhood Split)**
+The 1% Hourly Reward Pot is split in two:
+- **0.5%** is automatically redistributed to all traders as **Instant Cashback** on every single trade!
+- **0.5%** is shared among **ALL Active Traders** at the end of the hour, perfectly proportional to your "Volume Score". No fixed limits, everyone wins!
+
+3️⃣ **Staking Volume Multiplier**
+Stake your $IRL tokens to unlock powerful boosts! Stakers receive **bonus NFT Tickets** for the daily lottery, and get up to a **1.5x Multiplier** on their Volume Score. Earn a massive share of the Hourly Pot without needing to over-trade!
+
+4️⃣ **Automated Anti-Whale Protection**
+To protect early liquidity, strict maximum transaction sizes and wallet holdings are enforced at launch. **These limits automatically disable once the Market Cap reaches $40k**, unleashing the whales dynamically without manual developer intervention!
+
+*Zero Sell Pressure*: All ecosystem taxes are collected natively in WETH directly from the liquidity pool (Swap-and-Liquify via V4). The chart never dumps to fund the lottery!
+
+Use /tokenomics to see the exact tax breakdown, or /contracts to verify our code.`;
     ctx.reply(text, { parse_mode: 'Markdown' });
+});
+});
 });
 
 bot.command('tokenomics', (ctx) => {

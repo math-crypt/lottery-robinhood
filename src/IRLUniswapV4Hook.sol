@@ -9,6 +9,7 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {CurrencyLibrary, Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
 import {IRLStaking} from "./IRLStaking.sol";
@@ -22,6 +23,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IWETH {
+    function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
+        disableAntiWhaleSqrtPrice = _price;
+    }
+
     function withdraw(uint wad) external;
 }
 
@@ -32,6 +37,7 @@ interface IWETH {
 contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsumerBaseV2, Ownable, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
+    using StateLibrary for IPoolManager;
 
     IRLTicketNFT public immutable nftTicket;
     IRLStaking public immutable stakingContract;
@@ -39,6 +45,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
     // --- ANTI-WHALE LIMITS ---
     bool public limitsEnabled = true;
+    uint160 public disableAntiWhaleSqrtPrice;
     uint256 public constant MAX_TX_AMOUNT = 10_000_000 ether; // 1% of 1B supply
     uint256 public constant MAX_WALLET_AMOUNT = 20_000_000 ether; // 2% of 1B supply
 
@@ -222,9 +229,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         require(hookData.length >= 32, "HookData must contain user address");
         address trader = abi.decode(hookData, (address));
 
-        // Anti-Whale
+        // Anti-Whale Auto-Disable
         if (limitsEnabled) {
             require(volume <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
+            
+            if (disableAntiWhaleSqrtPrice > 0) {
+                (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
+                if (sqrtPriceX96 >= disableAntiWhaleSqrtPrice) {
+                    limitsEnabled = false;
+                }
+            }
         }
 
         // Dynamic Score Leaderboard
