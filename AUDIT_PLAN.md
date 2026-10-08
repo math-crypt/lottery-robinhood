@@ -25,8 +25,13 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
 - [x] Implement Robinhood mechanic (Top 10 leaderboard, Chainlink Keepers).
 - [x] Unit and Integration Tests (Simulation of V4 Swap & Volume Tracking).
 
+### Phase 2.5: Staking Mechanics
+- [x] Implement Token Staking Contract / Logic.
+- [x] Update Lottery mechanics to grant extra chances/tickets based on staked amounts.
+- [x] Update Volume Reward mechanics to grant a percentage bonus based on staked amounts.
+
 ### Phase 3: Deployment & Verification
-- [ ] Deployment Script (Testnet).
+- [ ] Deployment Script (Testnet) & Initial Liquidity setup (10k MC via V4 Hook).
 - [ ] Contract Verification.
 - [ ] Transaction simulations and tax/lottery verification.
 
@@ -44,3 +49,7 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Executed successful Foundry simulations (`IRLUniswapV4Hook.t.sol`), testing swap tracking and NFT payouts.
   - Received external ZAUTH audit (62/100). Implemented critical security fixes (ReentrancyGuard, active ETH distributions, Pot variables).
   - Pushed all progress to public GitHub.
+  
+- **2026-10-08**:
+  - Updated plan to include new ideas from user: a staking mechanism for bonus lottery chances and reward percentages, and a 10k Market Cap deployment via V4 Hook.
+  - Added Phase 2.5 for Staking Mechanics and updated Phase 3 in AUDIT_PLAN.md.

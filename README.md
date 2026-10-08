@@ -32,11 +32,12 @@ To protect early investors from sniper bots and massive whales controlling the s
 Instead of rewarding passive "whales" holding the token, the protocol rewards active ecosystem participants. The 1% Volume Reward pot is distributed **every hour** in ETH:
 - **50% of the pot** is automatically airdropped to the **Top 10 traders** (by volume) of that hour (distribution is proportional to their volume inside the Top 10 to encourage competition).
 - **50% of the pot** is distributed proportionally to **all traders** who contributed to the volume during that hour.
+*(💡 Stakers receive up to a **+50% bonus** multiplier on their hourly volume rewards based on their staked `$IRL` amount!)*
 *(To prevent blockchain gas limits, mass-distribution is handled via a queue system automatically processed by **Chainlink Automation Keepers**. No website claiming required!)*
 
 ### 🎟️ Daily On-Chain Lottery (NFT Tickets)
 - Users receive **1 NFT Lottery Ticket** (`IRLTicketNFT` ERC721) minted directly to their wallet for every `0.1 ETH` of qualifying trading volume.
-- Maximum of 5 NFT tickets per wallet per day to maintain fairness.
+- Maximum of 5 NFT tickets per wallet per day to maintain fairness. *(💡 Stakers can increase their daily ticket limit by staking `$IRL`!)*
 - Daily draws are executed automatically via **Chainlink Automation** and secured by **Chainlink VRF** (Verifiable Random Function).
 - Chainlink VRF draws a winning `TokenId` and the owner of that specific NFT receives the accumulated ETH lottery pot!
 
@@ -45,6 +46,11 @@ The Smart Contracts are designed with transparency and community engagement in m
 - `Top10Updated`: Live Leaderboard updates on every swap.
 - `TicketMinted`: Live notification when someone earns a Lottery NFT.
 - `LotteryWinnerDrawn`: Massive celebration alert when the daily VRF draw finds a winner.
+
+### 🥩 Staking Multipliers ($IRL Staking)
+To incentivize long-term holders and reward loyalty, users can lock their `$IRL` tokens in the `IRLStaking` contract to earn powerful ecosystem boosts directly integrated into the V4 Hook:
+- **Lottery Boost**: Increase your maximum daily NFT lottery tickets by **+1 ticket** for every `10,000 $IRL` staked.
+- **Yield Boost**: Earn a percentage multiplier on your Hourly Volume Rewards. Gain **+1% reward bonus** for every `10,000 $IRL` staked, up to a maximum of **+50% bonus rewards**.
 
 ### 🛡️ Security & Trust (Anti-Rug)
 To ensure the absolute safety of investor funds, the $IRL ecosystem strictly adheres to DeFi security standards:

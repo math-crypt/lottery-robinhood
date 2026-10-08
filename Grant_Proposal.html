@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grant Proposal: Internet Robin Lottery</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #34495e;
+        }
+        p {
+            margin-bottom: 15px;
+        }
+        ul {
+            margin-bottom: 15px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        strong {
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Grant Proposal: Internet Robin Lottery ($IRL)</h1>
+
+    <h2>1. Project Overview</h2>
+    <p><strong>Project Name:</strong> Internet Robin Lottery ($IRL)<br>
+    <strong>Tagline:</strong> Redefining Tokenomics and Gamification using Uniswap V4 Hooks and Chainlink Automation.<br>
+    <strong>Repository:</strong> <a href="https://github.com/math-crypt/lottery-robinhood/">https://github.com/math-crypt/lottery-robinhood/</a><br>
+    <strong>Target Network:</strong> Robinhood Chain (Arbitrum L2)</p>
+
+    <h2>2. The Problem</h2>
+    <p>Traditional "reward" and "reflection" tokens suffer from two major flaws:</p>
+    <ul>
+        <li><strong>The "Dumping" Effect:</strong> Taxes are usually collected in the native ERC20 token. When the contract swaps these accumulated tokens for ETH to distribute rewards, it creates artificial, massive sell-pressure on the chart, destroying investor confidence.</li>
+        <li><strong>Rewarding Passive Whales:</strong> Traditional systems reward users proportionally to their holdings. This discourages trading and active participation, reducing the overall volume and fees generated for the underlying DEX and blockchain.</li>
+    </ul>
+
+    <h2>3. The Solution: $IRL &amp; Uniswap V4</h2>
+    <p><strong>Internet Robin Lottery ($IRL)</strong> solves these issues by completely removing the tax logic from the ERC20 token and embedding it directly into a <strong>Uniswap V4 Hook</strong>.</p>
+    <p>By utilizing V4's native architecture, we introduce a frictionless <strong>Swap-and-Liquify</strong> mechanism and a volume-based gamified reward system.</p>
+
+    <h3>Key Features:</h3>
+    <ul>
+        <li><strong>Zero-Sell-Pressure Taxes:</strong> The V4 Hook intercepts swaps and extracts a 3% tax directly in WETH. The $IRL chart is completely protected from contract dumps.</li>
+        <li><strong>Volume-Based Rewards:</strong> Instead of rewarding passive holders, $IRL rewards active traders. The Hook tracks hourly volume on-chain and maintains a dynamic Top 10 leaderboard.</li>
+        <li><strong>Automated Airdrops:</strong> Using Chainlink Automation (Keepers), 50% of the hourly WETH pot is automatically airdropped to the Top 10 traders, and 50% to all other active traders in batches.</li>
+        <li><strong>NFT Lottery Tickets:</strong> Every time a user reaches 0.1 ETH in trading volume, the V4 Hook automatically mints them an ERC721 NFT Lottery Ticket.</li>
+        <li><strong>Provably Fair Draws:</strong> A daily Chainlink VRF request selects a winning NFT <code>tokenId</code>, awarding the owner the daily ETH lottery pot.</li>
+    </ul>
+
+    <h2>4. Value to the Ecosystem</h2>
+    <p>This project serves as a <strong>flagship demonstration of what Uniswap V4 Hooks can achieve</strong>.</p>
+    <p>It goes beyond simple dynamic fees by showcasing:</p>
+    <ul>
+        <li>Real-time on-chain Leaderboards embedded in a Hook.</li>
+        <li>Cross-contract interactions (Minting ERC721s directly from a DEX swap).</li>
+        <li>Seamless integration with Chainlink Oracles (VRF and Automation) to create a self-sustaining gamified ecosystem.</li>
+    </ul>
+    <p>Furthermore, because rewards are exclusively tied to trading volume, $IRL is designed to <strong>generate massive transactional volume and network activity</strong> for the Robinhood Chain and the Uniswap Protocol.</p>
+
+    <h2>5. Funding Request</h2>
+    <p>The smart contracts are already developed, tested in Foundry, and open-sourced on GitHub. We are requesting a micro-grant to successfully launch and secure the ecosystem.</p>
+    <p><strong>Requested Amount: $5,000 USD</strong></p>
+    <ul>
+        <li><strong>$4,000:</strong> Initial Liquidity Provisioning (Locked). This ensures a healthy, manipulation-resistant pool depth at launch to protect early retail users from high slippage and sniper bots.</li>
+        <li><strong>$1,000:</strong> Initial funding for Chainlink VRF (LINK) and Chainlink Automation (Keepers) to guarantee smooth automated distributions for the first 12 months.</li>
+    </ul>
+
+    <h2>6. Team &amp; Open Source Commitment</h2>
+    <p>I am an independent Web3 builder. To give back to the developer community, the entire $IRL smart contract architecture (including the V4 Hook, NFT logic, and test suites) is <strong>100% open-source</strong>. It will serve as a valuable reference repository for future builders looking to integrate Uniswap V4 Hooks with Chainlink services.</p>
+    <p>Thank you for your consideration.</p>
+
+</body>
+</html>

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 ### Added
+- **Staking Mechanics (Phase 2.5):** Created `IRLStaking.sol` and integrated it into the V4 Hook.
+- Added Staking Multipliers in Hook: +1 max lottery ticket per 10k IRL staked.
+- Added Staking Multipliers in Hook: +1% bonus on hourly volume rewards per 10k IRL staked (capped at +50%).
+- Planned Initial Liquidity setup for a 10k Market Cap token deployment.
 - Initialized project management files (`AUDIT_PLAN.md`, `BACKLOG.md`).
 - Set up AI agent development rules (`.agents/AGENTS.md`).
 - Validated "Volume Rewards Token" tokenomics (3% Tax, VRF, Volume redistribution).

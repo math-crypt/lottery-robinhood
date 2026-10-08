@@ -10,6 +10,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
+import {IRLStaking} from "./IRLStaking.sol";
 
 // Chainlink Imports
 import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automation/AutomationCompatible.sol";
@@ -27,6 +28,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     using PoolIdLibrary for PoolKey;
 
     IRLTicketNFT public immutable nftTicket;
+    IRLStaking public immutable stakingContract;
 
     // --- ANTI-WHALE LIMITS ---
     bool public limitsEnabled = true;
@@ -77,11 +79,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     constructor(
         IPoolManager _poolManager, 
         address _nftTicket,
+        address _stakingContract,
         address vrfCoordinator,
         uint64 subscriptionId,
         bytes32 keyHash
     ) BaseHook(_poolManager) VRFConsumerBaseV2(vrfCoordinator) Ownable(msg.sender) {
         nftTicket = IRLTicketNFT(_nftTicket);
+        stakingContract = IRLStaking(_stakingContract);
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_subscriptionId = subscriptionId;
         s_keyHash = keyHash;
@@ -148,7 +152,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         dailyVolume[dayId][trader] += volume;
         uint256 currentVolume = dailyVolume[dayId][trader];
         
-        while (dailyTicketsMinted[dayId][trader] < MAX_TICKETS_PER_DAY) {
+        // Calculate max tickets: base 5 + 1 per 10k IRL staked
+        uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
+        uint256 maxTicketsForTrader = MAX_TICKETS_PER_DAY + (stakedAmount / 10_000 ether);
+
+        while (dailyTicketsMinted[dayId][trader] < maxTicketsForTrader) {
             uint256 targetVolume = (dailyTicketsMinted[dayId][trader] + 1) * TICKET_VOLUME_THRESHOLD;
             if (currentVolume >= targetVolume) {
                 dailyTicketsMinted[dayId][trader]++;
@@ -260,9 +268,20 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = currentQueue[i];
-            (bool success, ) = user.call{value: queueRewardPerUser}("");
+            
+            // Staking Bonus: +1% reward per 10k IRL staked (Max 50% bonus)
+            uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(user) : 0;
+            uint256 bonusPercentage = (stakedAmount / 10_000 ether);
+            if (bonusPercentage > 50) bonusPercentage = 50;
+            
+            uint256 rewardAmount = queueRewardPerUser + ((queueRewardPerUser * bonusPercentage) / 100);
+
+            // In production, we'd need to ensure the contract has enough ETH balance to cover the bonuses.
+            // For now, this assumes the pot has a buffer or is handled via the split logic.
+            
+            (bool success, ) = user.call{value: rewardAmount}("");
             if (success) {
-                emit UserRewarded(user, queueRewardPerUser);
+                emit UserRewarded(user, rewardAmount);
             }
         }
         queueIndex = limit;

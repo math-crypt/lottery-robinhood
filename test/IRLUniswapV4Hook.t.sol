@@ -109,18 +109,59 @@ contract IRLUniswapV4HookTest is BaseTest {
     }
 
     function testAfterSwapTracksVolume() public {
-        vm.startPrank(trader);
-        
         uint256 amountIn = 0.5 ether; // Needs to be > 0.1 to trigger NFT
         
-        // Approve router
-        // In this base testing setup, swaps are done via swapRouter (deployArtifactsAndLabel deploys it)
-        // Wait, swapRouter requires approvals
-        // We will just execute a swap!
+        // On BaseTest, currency0 and currency1 are MockERC20 tokens.
+        // We approve the swapRouter to spend our tokens
+        // For testing, we just use the test contract itself as the swapper since it has the tokens minted
         
-        // Actually, we need to approve the swapRouter first.
-        // currency0 is an ERC20 in BaseTest.
-        // I will just use address(swapRouter) or similar. 
-        // BaseTest swapRouter is already deployed.
+        // Mint tokens to this test contract for the swap
+        deal(Currency.unwrap(currency0), address(this), 10 ether);
+        deal(Currency.unwrap(currency1), address(this), 10 ether);
+        
+        // Approve Router
+        // Since currency0 is a MockERC20, we can use an external call to approve
+        (bool success, ) = Currency.unwrap(currency0).call(
+            abi.encodeWithSignature("approve(address,uint256)", address(swapRouter), type(uint256).max)
+        );
+        require(success, "approve failed");
+
+        // Perform a test swap
+        BalanceDelta swapDelta = swapRouter.swapExactTokensForTokens({
+            amountIn: amountIn,
+            amountOutMin: 0, // Unlimited price impact for test
+            zeroForOne: true, // Swapping currency0 for currency1
+            poolKey: poolKey,
+            hookData: Constants.ZERO_BYTES,
+            receiver: address(this),
+            deadline: block.timestamp + 1
+        });
+
+        // 1. Verify swap happened
+        assertEq(int256(swapDelta.amount0()), -int256(amountIn));
+
+        // 2. Verify Volume Tracking
+        uint256 hourId = block.timestamp / 1 hours;
+        // In Uniswap V4 tests, tx.origin is usually address(0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38) or similar depending on the test runner
+        // Since we use tx.origin in the hook, let's just check the Top10 for tx.origin
+        address actualTrader = tx.origin;
+        uint256 trackedVolume = hook.userVolumePerHour(hourId, actualTrader);
+        
+        // Volume should be equal to amountIn (simplified in hook delta logic)
+        assertEq(trackedVolume, amountIn);
+
+        // 3. Verify Top 10 Leaderboard
+        address top1 = hook.topTradersPerHour(hourId, 0);
+        assertEq(top1, actualTrader); // Our trader should be #1
+
+        // 4. Verify NFT Minting
+        // Since amountIn (0.5 ether) > TICKET_VOLUME_THRESHOLD (0.1 ether)
+        // Trader should have received tickets!
+        uint256 ticketsEarned = hook.dailyTicketsMinted(block.timestamp / 1 days, actualTrader);
+        assertEq(ticketsEarned, 5); // 0.5 ETH / 0.1 ETH = 5 tickets! (Max per day)
+        
+        // Verify NFT balance
+        assertEq(nft.balanceOf(actualTrader), 5);
+        assertEq(nft.ownerOf(1), actualTrader); // First NFT belongs to trader
     }
 }
