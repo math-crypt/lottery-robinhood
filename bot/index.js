@@ -45,7 +45,7 @@ bot.on('new_chat_members', (ctx) => {
         // Prevent welcoming other bots
         if (member.is_bot) continue;
         const name = member.first_name || 'Robinhood';
-        ctx.reply(`Welcome to the Internet Robinhood Lottery ($IRL) community, ${name}! 🏹\n\nWe steal from the whales to give back to the community!\nType /about to learn how our automated Uniswap V4 tax redistribution works, or check the menu to view the active prize pots.`);
+        ctx.reply(`Welcome to the Internet Robinhood Lottery ($IRL) community, ${name}! 🏹\n\nWe steal from the whales to give back to the community! 🏹\n\n⚠️ *Phase 1 Info*: There is NO website and NO official Twitter yet. Everything happens 100% On-Chain and here in Telegram!\n\nType /about to learn how our automated Uniswap V4 tax redistribution works, or check the menu to view the active prize pots.`);
     }
 });
 
@@ -64,6 +64,25 @@ bot.command('contracts', (ctx) => {
     ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
         Markup.button.url('View Hook on Explorer', `${EXPLORER_URL}/address/${HOOK_ADDRESS}`)
     ])});
+});
+
+bot.command('stake', (ctx) => {
+    const text = `🏦 *How to Stake $IRL (Phase 1)* 🏦
+
+⚠️ *Note:* There is NO official website or DApp for Phase 1! Staking is done directly on the Robinhood Scan block explorer. This is the most secure, trustless way to interact with a smart contract.
+
+**Step-by-Step Guide:**
+1️⃣ Go to the $IRL Token Contract on Robinhood Scan.
+2️⃣ Click "Write Contract" and connect your Web3 Wallet.
+3️⃣ Call the \`approve\` function:
+   - \`spender\`: The Staking Contract Address
+   - \`amount\`: The amount of $IRL you want to stake (with 18 zeros)
+4️⃣ Go to the Staking Contract on Robinhood Scan.
+5️⃣ Click "Write Contract", connect your wallet, and call \`stake\` with your amount!
+
+*Links will be provided here once contracts are officially deployed.*
+`;
+    ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
 bot.command('tickets', async (ctx) => {

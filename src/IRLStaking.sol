@@ -14,6 +14,25 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
  * - Percentage multiplier on hourly volume rewards.
  */
 contract IRLStaking is Ownable, ReentrancyGuard {
+    /**
+     * @notice PROJECT INFO & SOCIALS
+     * 
+     *      (
+     *       \
+     *        )
+     * ##-------->  $IRL Lottery
+     *        )
+     *       /
+     *      (
+     * 
+     * We steal from the whales to give back to the community!
+     * 
+     * Telegram: t.me/InternetRobinhoodLottery
+     * GitHub: https://github.com/math-crypt/lottery-robinhood
+     * Website: None (Phase 1 is 100% On-Chain)
+     * Twitter: None (Phase 1 is Community Driven)
+     */
+    string public constant SOCIALS = "Telegram: t.me/InternetRobinhoodLottery | GitHub: https://github.com/math-crypt/lottery-robinhood";
     using SafeERC20 for IERC20;
 
     IERC20 public immutable stakingToken;
