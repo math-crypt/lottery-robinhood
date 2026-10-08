@@ -41,26 +41,7 @@ bot.command('tickets', (ctx) => {
     ctx.reply(`🎟️ Currently, *142 tickets* have been generated for today's lottery!`, { parse_mode: 'Markdown' });
 });
 
-            }
-        }
-        
-        if (traders.length === 0) {
-            text += 'No traders yet this hour! Be the first to secure the #1 spot and grab the ETH rewards! 🚀';
-        } else {
-            traders.sort((a, b) => parseFloat(b.vol) - parseFloat(a.vol));
-            traders.forEach((t, i) => {
-                const shortAddr = t.addr.substring(0, 6) + '...' + t.addr.substring(38);
-                text += `${i + 1}️⃣ ${shortAddr} - ${parseFloat(t.vol).toFixed(2)} $IRL Volume\n`;
-            });
-            text += '\n*Top traders share 50% of the Hourly Reward Pot!*';
-        }
-        
-        ctx.reply(text, { parse_mode: 'Markdown' });
-    } catch (e) {
-        console.error(e);
-        ctx.reply('❌ Unable to fetch Top 10 data right now.');
-    }
-});
+
 
 bot.command('pot', (ctx) => {
     ctx.reply(`💰 *Current Prize Pots* 💰\n\n🏆 Today's Lottery: 1.4500 ETH\n⏱️ Hourly Rewards: 0.8500 ETH`, { parse_mode: 'Markdown' });
