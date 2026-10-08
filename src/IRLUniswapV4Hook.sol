@@ -47,9 +47,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     uint256 public hourlyRewardPot;
     uint256 public protocolPot; // For VRF/Automation fees and Marketing
 
-    // --- PENDING WINNERS ---
-    mapping(address => uint256) public pendingWithdrawals;
-
     // --- EVENTS (For Telegram Bot indexing) ---
     event Top10Updated(address indexed user, uint256 volume, uint256 currentHour);
     event TicketMinted(address indexed user, uint256 tokenId);
@@ -108,15 +105,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     }
 
     receive() external payable {}
-
-    function withdrawWinnings() external nonReentrant {
-        uint256 amount = pendingWithdrawals[msg.sender];
-        require(amount > 0, "No winnings to withdraw");
-        pendingWithdrawals[msg.sender] = 0;
-        
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "ETH transfer failed");
-    }
 
     /**
      * @notice Allows the owner to withdraw the protocol/marketing share of the tax (1%)
@@ -390,8 +378,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             uint256 prize = lotteryPot;
             lotteryPot = 0;
             
-            // SECURITY FIX: Use Pull over Push to prevent reverts
-            pendingWithdrawals[winner] += prize;
+            // Push pattern: If the winner is a smart contract that reverts, they lose the prize.
+            // The ETH remains in the contract and is implicitly collected by `withdrawProtocolFees()`.
+            (bool success, ) = winner.call{value: prize}("");
+            if (!success) {
+                // Optionally log failure, but do not revert the VRF callback.
+            }
             
             emit LotteryWinnerDrawn(winner, winningTokenId, prize); 
         }

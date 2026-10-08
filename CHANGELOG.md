@@ -23,9 +23,10 @@ All notable changes to this project will be documented in this file. The format 
 - Added comprehensive swap simulation test in `IRLUniswapV4Hook.t.sol` using Foundry, proving NFT minting and top 10 mechanics.
 - Added Removable Anti-Whale Launch Mechanics (`MAX_TX_AMOUNT` and `MAX_WALLET_AMOUNT`) to `IRLUniswapV4Hook.sol` to protect early liquidity.
 - **V4 Custom Accounting**: Completely refactored the tax collection to natively extract WETH on both exactIn and exactOut swaps using `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` with `PoolManager.take()`.
+- Added `protocolPot` and `withdrawProtocolFees()` to ensure the developer can safely extract the 1% unassigned tax.
 
 ### Changed
-- Replaced VRF Lottery push payout (`call{value}`) with a secure CEI Pull pattern (`withdrawWinnings`) to prevent DOS.
+- Reverted VRF Lottery to a pure Push payout (`call{value}`). If the transfer fails, the ETH elegantly falls back into the `protocolPot` instead of reverting the Chainlink callback.
 
 ### Fixed
 - Fixed bug in Hook where a single large swap only minted 1 NFT instead of multiple tickets when crossing multiple volume thresholds simultaneously.
