@@ -12,3 +12,5 @@ via_ir = true
 [lint]
 exclude_lints = ["screaming-snake-case-immutable", "screaming-snake-case-const"]
 lint_on_build = false
+
+gas_limit = 9223372036854775807

@@ -360,7 +360,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 currentDay = block.timestamp / 1 days;
         
         if (currentHour > lastProcessedHour && queueIndex == currentQueue.length) {
-            return (true, abi.encode(uint8(1), currentHour));
+            return (true, abi.encode(uint8(1), 0));
         }
         if (queueIndex < currentQueue.length) {
             return (true, abi.encode(uint8(2), 0));
@@ -378,7 +378,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         if (actionType == 1) {
             distributingHourId = lastProcessedHour;
             _setupHourDistribution(lastProcessedHour);
-            lastProcessedHour = timeId;
+            lastProcessedHour++;
         } else if (actionType == 2) {
             _processQueueBatch(50);
         } else if (actionType == 3) {
