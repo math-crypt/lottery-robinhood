@@ -26,7 +26,7 @@ bot.command('about', (ctx) => {
 });
 
 bot.command('tokenomics', (ctx) => {
-    const text = `📊 *$IRL Tokenomics & Taxes* 📊\n\nThere is a strict *3% tax* on every swap (buys and sells), extracted natively in WETH:\n\n🏆 *1% Daily Lottery*: 100% of this pot goes to a random ticket holder every day via Chainlink VRF!\n⏱️ *1% Hourly Rewards*: Split 50/50! Half goes to the Top 10 Traders of the hour, and the other half is automatically redistributed to all traders on every trade.\n⚙️ *1% Protocol*: Used to pay for Chainlink VRF gas, automation upkeep, and marketing.\n\nNo tokens are dumped on the chart; taxes are collected cleanly in WETH!`;
+    const text = `📊 *$IRL Tokenomics & Taxes* 📊\n\nThere is a strict *3% tax* on every swap (buys and sells), extracted natively in WETH:\n\n🏆 *1% Daily Lottery*: 100% of this pot goes to a random ticket holder every day via Chainlink VRF!\n⏱️ *1% Hourly Rewards*: Split 50/50! Half goes to the **Global Trader Pool** (shared proportionally to your Volume Score), and the other half is automatically redistributed to all traders on every trade.\n⚙️ *1% Protocol*: Used to pay for Chainlink VRF gas, automation upkeep, and marketing.\n\nNo tokens are dumped on the chart; taxes are collected cleanly in WETH!`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
@@ -41,17 +41,6 @@ bot.command('tickets', (ctx) => {
     ctx.reply(`🎟️ Currently, *142 tickets* have been generated for today's lottery!`, { parse_mode: 'Markdown' });
 });
 
-bot.command('top10', async (ctx) => {
-    try {
-        const currentHour = Math.floor(Date.now() / 3600000);
-        let text = '🏆 *Top 10 Traders of the Hour* 🏆\n\n';
-        
-        let traders = [];
-        for (let i = 0; i < 10; i++) {
-            const addr = await hookContract.topTradersPerHour(currentHour, i);
-            if (addr !== '0x0000000000000000000000000000000000000000') {
-                const vol = await hookContract.userVolumePerHour(currentHour, addr);
-                traders.push({ addr, vol: ethers.formatEther(vol) });
             }
         }
         

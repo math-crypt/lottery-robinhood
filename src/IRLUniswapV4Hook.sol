@@ -48,8 +48,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     uint256 public protocolPot; // For VRF/Automation fees and Marketing
 
     // --- EVENTS (For Telegram Bot indexing) ---
-    event Top10Updated(address indexed user, uint256 volume, uint256 currentHour);
-    event TicketMinted(address indexed user, uint256 tokenId);
+        event TicketMinted(address indexed user, uint256 tokenId);
     event HourlyRewardsDistributed(uint256 currentHour, uint256 totalPotDistributed);
     event UserRewarded(address indexed user, uint256 amount);
     event LotteryWinnerDrawn(address indexed winner, uint256 tokenId, uint256 prize);
@@ -61,7 +60,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
 
     // Tracking
     mapping(uint256 => mapping(address => uint256)) public userVolumePerHour;
-    mapping(uint256 => address[10]) public topTradersPerHour;
+    mapping(uint256 => mapping(address => uint256)) public userHourlyScore;
+    mapping(uint256 => uint256) public totalHourlyScore;
     mapping(uint256 => mapping(address => uint256)) public userCashbackPerHour;
     mapping(uint256 => address[]) public allTradersPerHour;
     mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
@@ -78,7 +78,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     uint256 public lastProcessedHour;
     address[] public currentQueue;
     uint256 public queueIndex;
-    uint256 public queueRewardPerUser;
+    uint256 public currentHourTotalReward;
+    uint256 public currentHourTotalScore;
 
     // VRF State
     VRFCoordinatorV2Interface COORDINATOR;
@@ -226,9 +227,18 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             require(volume <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
         }
 
-        // Leaderboard
+        // Dynamic Score Leaderboard
         userVolumePerHour[hourId][trader] += volume;
-        _updateTop10(hourId, trader, userVolumePerHour[hourId][trader]);
+        
+        uint256 _staked = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
+        uint256 _bonus = (_staked / 10_000 ether);
+        if (_bonus > 50) _bonus = 50;
+        
+        uint256 scoreMultiplier = 100 + _bonus;
+        uint256 scoreDelta = (volume * scoreMultiplier) / 100;
+        
+        userHourlyScore[hourId][trader] += scoreDelta;
+        totalHourlyScore[hourId] += scoreDelta;
 
         // NFTs
         dailyVolume[dayId][trader] += volume;
@@ -293,17 +303,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         return (BaseHook.afterSwap.selector, 0);
     }
 
-    function _updateTop10(uint256 hourId, address trader, uint256 newVolume) internal {
-        bool inList = false;
-        uint256 pos = 10;
-        address[10] storage top10 = topTradersPerHour[hourId];
-
-        for (uint256 i = 0; i < 10; i++) {
-            if (top10[i] == trader) {
-                inList = true;
-                pos = i;
-                break;
-            }
         }
 
         if (!inList) {
@@ -371,18 +370,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             currentQueue.push(traders[i]);
         }
         
-        uint256 top10Count = 0;
-        address[10] memory top10 = topTradersPerHour[hourId];
-        for (uint256 i = 0; i < 10; i++) {
-            if (top10[i] != address(0)) {
-                top10Count++;
-            }
-        }
-        
-        if (top10Count > 0) {
-            queueRewardPerUser = totalReward / top10Count;
+        uint256 tScore = totalHourlyScore[hourId];
+        if (tScore > 0) {
+            currentHourTotalReward = totalReward;
+            currentHourTotalScore = tScore;
         } else {
-            queueRewardPerUser = 0;
+            currentHourTotalReward = 0;
+            currentHourTotalScore = 0;
             protocolPot += totalReward;
         }
         
@@ -395,27 +389,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         if (limit > currentQueue.length) limit = currentQueue.length;
 
         uint256 hourId = lastProcessedHour;
-        address[10] memory top10 = topTradersPerHour[hourId];
 
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = currentQueue[i];
             uint256 totalPayout = userCashbackPerHour[hourId][user];
             
-            bool isTop10 = false;
-            for (uint256 j = 0; j < 10; j++) {
-                if (top10[j] == user) {
-                    isTop10 = true;
-                    break;
-                }
-            }
-            
-            if (isTop10 && queueRewardPerUser > 0) {
-                uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(user) : 0;
-                uint256 bonusPercentage = (stakedAmount / 10_000 ether);
-                if (bonusPercentage > 50) bonusPercentage = 50;
-                
-                uint256 top10Reward = queueRewardPerUser + ((queueRewardPerUser * bonusPercentage) / 100);
-                totalPayout += top10Reward;
+            if (currentHourTotalScore > 0) {
+                uint256 userScore = userHourlyScore[hourId][user];
+                uint256 potShare = (currentHourTotalReward * userScore) / currentHourTotalScore;
+                totalPayout += potShare;
             }
             
             if (totalPayout > 0) {
