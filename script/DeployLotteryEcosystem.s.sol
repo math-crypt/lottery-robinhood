@@ -17,13 +17,13 @@ import {IRLUniswapV4Hook} from "../src/IRLUniswapV4Hook.sol";
 contract DeployLotteryEcosystem is Script {
     using CurrencyLibrary for Currency;
 
-    // Constants for 20k Market Cap (Assuming 1 ETH = $3000 -> 20k$ = 6.666 ETH)
+    // Constants for 20k Market Cap (Current ETH Price ~ $2450 -> 20k$ = 8.163 ETH)
     // Supply = 1,000,000,000 IRL
-    // If IRL is token0 and WETH is token1: 1 IRL = 6.666e-9 WETH
-    uint160 constant SQRT_PRICE_IRL_TOKEN0 = 6468798150493635593361817; 
+    // If IRL is token0 and WETH is token1: 1 IRL = 8.163e-9 WETH
+    uint160 constant SQRT_PRICE_IRL_TOKEN0 = 7158327914619714881093632; 
     
-    // If WETH is token0 and IRL is token1: 1 WETH = 150,000,000 IRL
-    uint160 constant SQRT_PRICE_IRL_TOKEN1 = 970314407886407000000000000000000;
+    // If WETH is token0 and IRL is token1: 1 WETH = 122,500,000 IRL
+    uint160 constant SQRT_PRICE_IRL_TOKEN1 = 876895058097984813589920800000000;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
