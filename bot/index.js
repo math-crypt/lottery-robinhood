@@ -1,4 +1,4 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const { ethers } = require('ethers');
 require('dotenv').config();
 
@@ -8,6 +8,10 @@ const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 // Contract Addresses
 const HOOK_ADDRESS = process.env.HOOK_ADDRESS;
 const NFT_ADDRESS = process.env.NFT_ADDRESS;
+const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || "0xYourTokenAddress";
+
+// Explorer URL Base
+const EXPLORER_URL = process.env.EXPLORER_URL || "https://explorer.robinhood.com";
 
 // Simple ABIs
 const hookAbi = [
@@ -27,7 +31,28 @@ const nftContract = new ethers.Contract(NFT_ADDRESS, nftAbi, provider);
 // Channel ID to announce events
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-bot.start((ctx) => ctx.reply('Welcome to the official Internet Robin Lottery ($IRL) bot! 🏹\n\nAvailable commands:\n/tickets - View the number of lottery tickets in play\n/pot - View the current size of the prize pots'));
+// --- Bot Commands ---
+
+bot.start((ctx) => {
+    ctx.reply('Welcome to the official Internet Robin Lottery ($IRL) bot! 🏹\n\nUse the menu to explore the project, check the pots, or view the contracts.');
+});
+
+bot.command('about', (ctx) => {
+    const text = `🏹 *About Internet Robin Lottery ($IRL)* 🏹\n\nWe steal from the whales to give to the community! $IRL is an innovative DeFi ecosystem running on the Robinhood Chain.\n\nBy holding and trading $IRL, you automatically participate in a revolutionary redistribution system powered by Uniswap V4 Hooks.`;
+    ctx.reply(text, { parse_mode: 'Markdown' });
+});
+
+bot.command('tokenomics', (ctx) => {
+    const text = `📊 *$IRL Tokenomics & Taxes* 📊\n\nThere is a strict *3% tax* on every swap (buys and sells), extracted natively in WETH:\n\n🏆 *1% Daily Lottery*: 100% of this pot goes to a random ticket holder every day via Chainlink VRF!\n⏱️ *1% Hourly Rewards*: Distributed back to the Top 10 Traders of the hour.\n⚙️ *1% Protocol*: Used to pay for Chainlink VRF gas, automation upkeep, and marketing.\n\nNo tokens are dumped on the chart; taxes are collected cleanly in WETH!`;
+    ctx.reply(text, { parse_mode: 'Markdown' });
+});
+
+bot.command('contracts', (ctx) => {
+    const text = `📜 *Official Smart Contracts* 📜\n\nVerify our code directly on Robinhood Scan:\n\n🪙 *$IRL Token*: \`${TOKEN_ADDRESS}\`\n🪝 *Uniswap V4 Hook*: \`${HOOK_ADDRESS}\`\n🎟️ *NFT Tickets*: \`${NFT_ADDRESS}\`\n\n_Make sure you only interact with these official addresses!_`;
+    ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
+        Markup.button.url('View Hook on Explorer', `${EXPLORER_URL}/address/${HOOK_ADDRESS}`)
+    ])});
+});
 
 bot.command('tickets', async (ctx) => {
     try {
@@ -54,18 +79,25 @@ bot.command('pot', async (ctx) => {
     }
 });
 
-// Setup Event Listeners
+// --- Event Listeners ---
+
 async function setupListeners() {
     console.log("Listening for Smart Contract events...");
 
     hookContract.on("LotteryWinnerDrawn", async (winner, tokenId, prize, event) => {
         const prizeEth = parseFloat(ethers.formatEther(prize)).toFixed(4);
+        const txHash = event.log.transactionHash;
+        
         const message = `🎉 *NEW LOTTERY WINNER!* 🎉\n\nTicket #${tokenId.toString()} was just drawn by Chainlink VRF!\n\n👤 Winner: \`${winner}\`\n💸 Prize: *${prizeEth} ETH* transferred instantly!\n\nCongratulations to the winner! 🏹`;
         
         if(CHANNEL_ID) {
             try {
-                const msg = await bot.telegram.sendMessage(CHANNEL_ID, message, { parse_mode: 'Markdown' });
-                // Pin the winning message
+                const msg = await bot.telegram.sendMessage(CHANNEL_ID, message, { 
+                    parse_mode: 'Markdown',
+                    ...Markup.inlineKeyboard([
+                        Markup.button.url('🔍 View Transaction on Robinhood Scan', `${EXPLORER_URL}/tx/${txHash}`)
+                    ])
+                });
                 await bot.telegram.pinChatMessage(CHANNEL_ID, msg.message_id);
             } catch (error) {
                 console.error("Error sending or pinning message:", error);
@@ -74,10 +106,16 @@ async function setupListeners() {
     });
 
     hookContract.on("HourlyRewardsDistributed", (currentHour, totalPotDistributed, event) => {
+        const txHash = event.log.transactionHash;
         const message = `⏱️ *HOURLY REWARDS DISTRIBUTED* ⏱️\n\nThe hourly pot has just been automatically airdropped to the Top Traders and the community!\n\nTrade $IRL to participate in the next distribution! 🏹`;
         
         if(CHANNEL_ID) {
-            bot.telegram.sendMessage(CHANNEL_ID, message, { parse_mode: 'Markdown' }).catch(console.error);
+            bot.telegram.sendMessage(CHANNEL_ID, message, { 
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    Markup.button.url('🔍 View Distribution on Robinhood Scan', `${EXPLORER_URL}/tx/${txHash}`)
+                ])
+            }).catch(console.error);
         }
     });
 }
@@ -87,6 +125,9 @@ bot.launch().then(() => {
     
     // Set bot commands menu
     bot.telegram.setMyCommands([
+        { command: 'about', description: 'Learn about the Internet Robin Lottery project' },
+        { command: 'tokenomics', description: 'View the taxes and pot distributions' },
+        { command: 'contracts', description: 'View official smart contract addresses' },
         { command: 'tickets', description: 'View the number of lottery tickets in play' },
         { command: 'pot', description: 'View the current size of the prize pots' }
     ]).catch(console.error);
