@@ -62,6 +62,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     // Tracking
     mapping(uint256 => mapping(address => uint256)) public userVolumePerHour;
     mapping(uint256 => address[10]) public topTradersPerHour;
+    mapping(uint256 => mapping(address => uint256)) public userCashbackPerHour;
+    mapping(uint256 => address[]) public allTradersPerHour;
+    mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
+    
+    mapping(uint256 => mapping(address => uint256)) public userCashbackPerHour;
+    mapping(uint256 => address[]) public allTradersPerHour;
+    mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
     
     // Daily tracking for NFT
     mapping(uint256 => mapping(address => uint256)) public dailyVolume;
@@ -181,9 +188,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             protocolPot += split;
             hourlyRewardPot += top10;
             
-            (bool success, ) = trader.call{value: cashback}("");
-            if (!success) {
-                protocolPot += cashback;
+            uint256 currentHour = block.timestamp / 1 hours;
+            userCashbackPerHour[currentHour][trader] += cashback;
+            if (!traderRecordedPerHour[currentHour][trader]) {
+                traderRecordedPerHour[currentHour][trader] = true;
+                allTradersPerHour[currentHour].push(trader);
             }
             
             BeforeSwapDelta returnDelta = toBeforeSwapDelta(
@@ -271,9 +280,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             protocolPot += split;
             hourlyRewardPot += top10;
             
-            (bool success, ) = trader.call{value: cashback}("");
-            if (!success) {
-                protocolPot += cashback;
+            uint256 currentHour = block.timestamp / 1 hours;
+            userCashbackPerHour[currentHour][trader] += cashback;
+            if (!traderRecordedPerHour[currentHour][trader]) {
+                traderRecordedPerHour[currentHour][trader] = true;
+                allTradersPerHour[currentHour].push(trader);
             }
             
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
@@ -353,28 +364,29 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 totalReward = hourlyRewardPot;
         hourlyRewardPot = 0;
         
-        if (totalReward == 0) {
-            emit HourlyRewardsDistributed(hourId, 0);
-            return;
-        }
-
+        address[] memory traders = allTradersPerHour[hourId];
         delete currentQueue;
-        address[10] memory top10 = topTradersPerHour[lastProcessedHour];
-        uint256 count = 0;
+        
+        for (uint256 i = 0; i < traders.length; i++) {
+            currentQueue.push(traders[i]);
+        }
+        
+        uint256 top10Count = 0;
+        address[10] memory top10 = topTradersPerHour[hourId];
         for (uint256 i = 0; i < 10; i++) {
             if (top10[i] != address(0)) {
-                currentQueue.push(top10[i]);
-                count++;
+                top10Count++;
             }
         }
         
-        if (count > 0) {
-            queueRewardPerUser = totalReward / count;
-            queueIndex = 0;
+        if (top10Count > 0) {
+            queueRewardPerUser = totalReward / top10Count;
         } else {
+            queueRewardPerUser = 0;
             protocolPot += totalReward;
         }
         
+        queueIndex = 0;
         emit HourlyRewardsDistributed(hourId, totalReward);
     }
 
@@ -382,18 +394,37 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 limit = queueIndex + batchSize;
         if (limit > currentQueue.length) limit = currentQueue.length;
 
+        uint256 hourId = lastProcessedHour;
+        address[10] memory top10 = topTradersPerHour[hourId];
+
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = currentQueue[i];
+            uint256 totalPayout = userCashbackPerHour[hourId][user];
             
-            uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(user) : 0;
-            uint256 bonusPercentage = (stakedAmount / 10_000 ether);
-            if (bonusPercentage > 50) bonusPercentage = 50;
+            bool isTop10 = false;
+            for (uint256 j = 0; j < 10; j++) {
+                if (top10[j] == user) {
+                    isTop10 = true;
+                    break;
+                }
+            }
             
-            uint256 rewardAmount = queueRewardPerUser + ((queueRewardPerUser * bonusPercentage) / 100);
+            if (isTop10 && queueRewardPerUser > 0) {
+                uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(user) : 0;
+                uint256 bonusPercentage = (stakedAmount / 10_000 ether);
+                if (bonusPercentage > 50) bonusPercentage = 50;
+                
+                uint256 top10Reward = queueRewardPerUser + ((queueRewardPerUser * bonusPercentage) / 100);
+                totalPayout += top10Reward;
+            }
             
-            (bool success, ) = user.call{value: rewardAmount}("");
-            if (success) {
-                emit UserRewarded(user, rewardAmount);
+            if (totalPayout > 0) {
+                (bool success, ) = user.call{value: totalPayout}("");
+                if (success) {
+                    emit UserRewarded(user, totalPayout);
+                } else {
+                    protocolPot += totalPayout;
+                }
             }
         }
         queueIndex = limit;
