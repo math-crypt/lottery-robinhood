@@ -38,3 +38,7 @@ All notable changes to this project will be documented in this file. The format 
 - Added `claimDailyStakingTickets()` to allow stakers to freely mint their daily bonus tickets without trading. If they trade, it auto-mints to save gas.
 - Restored simpler tech stack badges (Robinhood Chain, Uniswap V4, Foundry) in `README.md`.
 - Reverted VRF Lottery to a pure Push payout (`call{value}`). If the transfer fails, the ETH elegantly falls back into the `protocolPot` instead of reverting the Chainlink callback.
+- **Testing:** Executed a massive 500-user per hour simulation. Verified Upkeep scaling with batches of 50 costing only ~69k gas.
+- **Logic:** Fixed skip-hour bug in Upkeep where multi-hour gaps would only process the latest hour.
+- **Docs:** Added SYSTEM_ARCHITECTURE.md with complete project overview.
+- Cleaned test suite from git tracking.
