@@ -45,6 +45,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     // --- POTS (Reward & Lottery) ---
     uint256 public lotteryPot;
     uint256 public hourlyRewardPot;
+    uint256 public protocolPot; // For VRF/Automation fees and Marketing
 
     // --- PENDING WINNERS ---
     mapping(address => uint256) public pendingWithdrawals;
@@ -118,6 +119,19 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     }
 
     /**
+     * @notice Allows the owner to withdraw the protocol/marketing share of the tax (1%)
+     * @dev Used to fund VRF and Automation upkeep
+     */
+    function withdrawProtocolFees() external onlyOwner nonReentrant {
+        uint256 amount = protocolPot;
+        require(amount > 0, "No fees to withdraw");
+        protocolPot = 0;
+        
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "ETH transfer failed");
+    }
+
+    /**
      * @notice Removes the Anti-Whale launch limits definitively.
      */
     function removeLimits() external onlyOwner {
@@ -171,6 +185,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             uint256 split = feeAmount / 3;
             lotteryPot += split;
             hourlyRewardPot += split;
+            protocolPot += feeAmount - (split * 2);
             
             BeforeSwapDelta returnDelta = toBeforeSwapDelta(
                 int128(int256(feeAmount)), // Specified delta
@@ -252,6 +267,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
             uint256 split = feeAmount / 3;
             lotteryPot += split;
             hourlyRewardPot += split;
+            protocolPot += feeAmount - (split * 2);
             
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
         }
