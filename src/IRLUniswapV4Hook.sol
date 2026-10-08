@@ -132,7 +132,10 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         uint256 dayId = block.timestamp / 1 days;
 
         uint256 volume = uint256(int256(delta.amount0() > 0 ? delta.amount0() : -delta.amount0()));
-        address trader = tx.origin;
+        
+        // Security Fix: Do not use tx.origin. V4 Routers must pass the user address in hookData.
+        require(hookData.length >= 32, "HookData must contain user address");
+        address trader = abi.decode(hookData, (address));
 
         // --- ANTI-WHALE CHECKS ---
         if (limitsEnabled) {

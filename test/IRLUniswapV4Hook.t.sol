@@ -132,7 +132,7 @@ contract IRLUniswapV4HookTest is BaseTest {
             amountOutMin: 0, // Unlimited price impact for test
             zeroForOne: true, // Swapping currency0 for currency1
             poolKey: poolKey,
-            hookData: Constants.ZERO_BYTES,
+            hookData: abi.encode(address(this)),
             receiver: address(this),
             deadline: block.timestamp + 1
         });
@@ -142,9 +142,8 @@ contract IRLUniswapV4HookTest is BaseTest {
 
         // 2. Verify Volume Tracking
         uint256 hourId = block.timestamp / 1 hours;
-        // In Uniswap V4 tests, tx.origin is usually address(0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38) or similar depending on the test runner
-        // Since we use tx.origin in the hook, let's just check the Top10 for tx.origin
-        address actualTrader = tx.origin;
+        
+        address actualTrader = address(this);
         uint256 trackedVolume = hook.userVolumePerHour(hourId, actualTrader);
         
         // Volume should be equal to amountIn (simplified in hook delta logic)
