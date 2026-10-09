@@ -62,6 +62,20 @@ To guarantee complete safety for all investors, we use the most advanced DeFi se
 
 ---
 
+## 🚀 Launch Mechanics & Anti-Whale Protection
+To ensure a completely fair launch and prevent sniper bots from dominating the ecosystem, the following parameters are enforced at genesis:
+
+- **Total Supply:** 1,000,000,000 $IRL (1 Billion)
+- **Initial Market Cap:** ~$20,000 USD
+- **Max Transaction (Anti-Bot):** 1% of Supply (10,000,000 $IRL) per transaction.
+- **Max Wallet (Anti-Whale):** 2% of Supply (20,000,000 $IRL) per wallet.
+
+### 🔓 Dynamic Limit Removal
+These strict limits are only there to protect early buyers. The Uniswap V4 Hook constantly monitors the pool price. **As soon as the Market Cap organically reaches ~$40,000 USD, the limits are automatically and permanently disabled by the smart contract!** 
+There is no developer intervention required. Once $40k is hit, the whales are unleashed and volume can flow freely.
+
+---
+
 ## 📊 Tokenomics
 
 Strict **3% tax** on every swap (buys and sells), extracted natively in WETH:
