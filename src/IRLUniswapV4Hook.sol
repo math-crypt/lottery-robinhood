@@ -14,10 +14,9 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
 import {IRLStaking} from "./IRLStaking.sol";
 
-// Chainlink Imports
-import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automation/AutomationCompatible.sol";
-import {VRFConsumerBaseV2} from "@chainlink/contracts/v0.8/vrf/VRFConsumerBaseV2.sol";
-import {VRFCoordinatorV2Interface} from "@chainlink/contracts/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
+// OpenVRF Imports
+import {RandomnessConsumer} from "../lib/openvrf/src/RandomnessConsumer.sol";
+import {OpenVRF} from "../lib/openvrf/src/OpenVRF.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -26,11 +25,13 @@ interface IWETH {
     function withdraw(uint wad) external;
 }
 
+import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automation/AutomationCompatible.sol";
+
 /**
  * @title IRL Uniswap V4 Hook
- * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax natively collected in ETH, Top 10 Tracking, NFT minting, Automations, VRF and Anti-Whale checks.
+ * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax natively collected in ETH, Top 10 Tracking, NFT minting, Automations, OpenVRF and Anti-Whale checks.
  */
-contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsumerBaseV2, Ownable, ReentrancyGuard {
+contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, RandomnessConsumer, Ownable, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
@@ -87,13 +88,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     uint256 public currentHourTotalScore;
     uint256 public distributingHourId;
 
-    // VRF State
-    VRFCoordinatorV2Interface COORDINATOR;
-    uint64 s_subscriptionId;
-    bytes32 s_keyHash;
-    uint32 callbackGasLimit = 100000;
-    uint16 requestConfirmations = 3;
-    uint32 numWords = 1;
+    // OpenVRF State
+    uint32 callbackGasLimit = 150000;
 
     mapping(uint256 => uint256) public vrfRequestToDayId;
     uint256 public lastLotteryDay;
@@ -102,16 +98,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
         IPoolManager _poolManager, 
         address _nftTicket,
         address _stakingContract,
-        address vrfCoordinator,
-        uint64 subscriptionId,
-        bytes32 keyHash,
+        address openVrfRouter,
         address _weth
-    ) BaseHook(_poolManager) VRFConsumerBaseV2(vrfCoordinator) Ownable(msg.sender) {
+    ) BaseHook(_poolManager) RandomnessConsumer(OpenVRF(openVrfRouter)) Ownable(msg.sender) {
         nftTicket = IRLTicketNFT(_nftTicket);
         stakingContract = IRLStaking(_stakingContract);
-        COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
-        s_subscriptionId = subscriptionId;
-        s_keyHash = keyHash;
         weth = IWETH(_weth);
 
         lastProcessedHour = block.timestamp / 1 hours;
@@ -441,22 +432,19 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, VRFConsume
     }
 
     function _triggerDailyLottery(uint256 dayId) internal {
-        uint256 requestId = COORDINATOR.requestRandomWords(
-            s_keyHash,
-            s_subscriptionId,
-            requestConfirmations,
-            callbackGasLimit,
-            numWords
-        );
+        // Automatically fund the request fee if required by the OpenVRF router
+        uint256 fee = randomnessRouter.requestFee();
+        uint256 requestId = randomnessRouter.requestRandomness{value: fee}(callbackGasLimit);
+        
         vrfRequestToDayId[requestId] = dayId;
         emit LotteryRequested(requestId, dayId);
     }
 
-    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
+    function _fulfillRandomness(uint256 requestId, uint256 randomWord) internal override {
         uint256 totalTickets = nftTicket.totalTicketsMinted(); 
         
         if (totalTickets > 0) {
-            uint256 winningTokenId = (randomWords[0] % totalTickets) + 1;
+            uint256 winningTokenId = (randomWord % totalTickets) + 1;
             address winner = nftTicket.ownerOf(winningTokenId);
             
             uint256 prize = lotteryPot;

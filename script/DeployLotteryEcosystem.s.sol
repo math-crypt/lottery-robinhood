@@ -52,19 +52,14 @@ contract DeployLotteryEcosystem is Script {
             Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
             Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
-        // Chainlink VRF Coordinator on Robinhood Chain
-        address vrfCoordinator = vm.envAddress("ROBINHOOD_VRF_COORDINATOR"); 
-        // NOTE: The SubId and KeyHash must be obtained from Robinhood Chain's Chainlink deployment
-        uint64 subId = uint64(vm.envUint("VRF_SUB_ID")); // Provide this in .env
-        bytes32 keyHash = vm.envBytes32("VRF_KEY_HASH"); // Provide this in .env
+        // OpenVRF Router on Robinhood Chain
+        address openVrfRouter = vm.envAddress("ROBINHOOD_OPENVRF_ROUTER"); 
         
         bytes memory constructorArgs = abi.encode(
             IPoolManager(poolManager), 
             address(nft), 
             address(staking), 
-            vrfCoordinator, 
-            subId, 
-            keyHash,
+            openVrfRouter, 
             weth
         );
 
@@ -84,9 +79,7 @@ contract DeployLotteryEcosystem is Script {
             IPoolManager(poolManager), 
             address(nft), 
             address(staking), 
-            vrfCoordinator, 
-            subId, 
-            keyHash,
+            openVrfRouter, 
             weth
         );
         require(address(hook) == hookAddress, "Hook Address mismatch");
