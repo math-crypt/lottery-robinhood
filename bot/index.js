@@ -107,6 +107,24 @@ bot.command('stake', (ctx) => {
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
+bot.command('security', (ctx) => {
+    const text = `🔒 *Liquidity & Security (100% Rug-Proof)* 🔒
+
+To guarantee complete safety for all investors, we use the most advanced DeFi security architecture on Uniswap V4:
+
+1️⃣ **90% Base Liquidity (BURNED)** 🔥
+The main liquidity pool NFT is permanently burned (sent to \`0x000...dEaD\`). This means the core trading liquidity is locked forever. **It is mathematically impossible to rug-pull the LP.** Users can trade safely for eternity!
+
+2️⃣ **10% Marketing Liquidity (SMART VAULT)** 🧠
+Instead of keeping marketing tokens in a dev wallet (which creates dump risks), 100% of the marketing supply is deployed as *Single-Sided Liquidity* in the V4 pool, far above the launch price.
+These tokens are locked in the \`IRLMarketingVault\` smart contract. 
+**The Vault mathematically blocks the dev from withdrawing IRL tokens.** The dev can ONLY collect ETH once the market naturally buys those tokens at higher market caps.
+➡️ *Zero red candles. Zero dump risk. 100% organic transparent growth.*
+
+You can verify these locks on-chain via the /contracts menu!`;
+    ctx.reply(text, { parse_mode: 'Markdown' });
+});
+
 bot.command('tickets', async (ctx) => {
     try {
         const total = await nftContract.totalTicketsMinted();
@@ -182,6 +200,7 @@ bot.launch().then(() => {
         { command: 'about', description: 'Learn about the Internet Robinhood Lottery project' },
         { command: 'tokenomics', description: 'View the taxes and pot distributions' },
         { command: 'contracts', description: 'View official smart contract addresses' },
+        { command: 'security', description: 'Learn about our rug-proof LP architecture' },
         { command: 'tickets', description: 'View the number of lottery tickets in play' },
         { command: 'pot', description: 'View the current size of the prize pots' }
     ]).catch(console.error);

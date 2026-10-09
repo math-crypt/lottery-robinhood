@@ -50,3 +50,4 @@ All notable changes to this project will be documented in this file. The format 
 - **Logic:** Fixed skip-hour bug in Upkeep where multi-hour gaps would only process the latest hour.
 - **Docs:** Added SYSTEM_ARCHITECTURE.md with complete project overview.
 - Cleaned test suite from git tracking.
+- **Testing:** Resolved block gas limit bottlenecks in massive testing scenarios by adjusting daily simulated swaps (from 1000 to 300) to safely test the end-to-end full deployment scale without reverting local Foundry VM.

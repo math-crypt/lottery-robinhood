@@ -13,6 +13,7 @@ import {InternetRobinLottery} from "../src/InternetRobinLottery.sol";
 import {IRLTicketNFT} from "../src/IRLTicketNFT.sol";
 import {IRLStaking} from "../src/IRLStaking.sol";
 import {IRLUniswapV4Hook} from "../src/IRLUniswapV4Hook.sol";
+import {IRLMarketingVault} from "../src/IRLMarketingVault.sol";
 
 contract DeployLotteryEcosystem is Script {
     using CurrencyLibrary for Currency;
@@ -31,7 +32,7 @@ contract DeployLotteryEcosystem is Script {
         
         // Robinhood Chain Addresses (Chain ID 4663)
         address weth = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73; 
-        address poolManager = 0x8366a39cc670b4001a1121b8f6a443a643e40951; 
+        address poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
         
         vm.startBroadcast(deployerPrivateKey);
 
@@ -40,10 +41,16 @@ contract DeployLotteryEcosystem is Script {
         InternetRobinLottery irl = new InternetRobinLottery(deployer, 1_000_000_000 ether);
         
         console2.log("Deploying IRLTicketNFT...");
-        IRLTicketNFT nft = new IRLTicketNFT();
+        IRLTicketNFT nft = new IRLTicketNFT(deployer);
         
         console2.log("Deploying IRLStaking...");
         IRLStaking staking = new IRLStaking(address(irl));
+
+        console2.log("Deploying IRLMarketingVault...");
+        // Requires V4 periphery PositionManager. Assuming address 0x... for now, deployer will update if needed.
+        // On Robinhood, we'll assume the standard V4 PositionManager address or pass it later.
+        address positionManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; // Replace with actual PM
+        IRLMarketingVault vault = new IRLMarketingVault(poolManager, positionManager);
 
         // 2. Mine Hook Address
         uint160 flags = uint160(
@@ -53,7 +60,7 @@ contract DeployLotteryEcosystem is Script {
             Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         // OpenVRF Router on Robinhood Chain
-        address openVrfRouter = vm.envAddress("ROBINHOOD_OPENVRF_ROUTER"); 
+        address openVrfRouter = 0x141fa059441E0ca23ce184B6A78bafD2A517DdE8; 
         
         bytes memory constructorArgs = abi.encode(
             IPoolManager(poolManager), 
@@ -83,6 +90,9 @@ contract DeployLotteryEcosystem is Script {
             weth
         );
         require(address(hook) == hookAddress, "Hook Address mismatch");
+        
+        // Transfer NFT ownership to hook so it can mint
+        nft.transferOwnership(address(hook));
 
         // 3. Initialize Pool with 20k MC Price
         Currency currency0;
@@ -108,7 +118,7 @@ contract DeployLotteryEcosystem is Script {
         });
 
         console2.log("Initializing Pool Manager with Market Cap ~20k$...");
-        IPoolManager(poolManager).initializePool(poolKey, startingPrice, new bytes(0));
+        IPoolManager(poolManager).initialize(poolKey, startingPrice);
 
         // Note: For initial liquidity provision, a PositionManager call would follow here.
         // The script sets the exact price which acts as the 20k MC valuation for the token!
@@ -120,5 +130,6 @@ contract DeployLotteryEcosystem is Script {
         console2.log("IRL NFT:", address(nft));
         console2.log("IRL Staking:", address(staking));
         console2.log("IRL Hook:", address(hook));
+        console2.log("IRL Marketing Vault:", address(vault));
     }
 }

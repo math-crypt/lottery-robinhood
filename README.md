@@ -48,6 +48,18 @@ Stake your $IRL tokens in the official Staking Contract to unlock powerful boost
 - **Bonus NFT Tickets** for the daily lottery.
 - Up to a **1.5x Multiplier** on your Volume Score! Earn a massive share of the Hourly Pot without needing to over-trade.
 
+### 4️⃣ Transparent Liquidity & Marketing (100% Rug-Proof)
+To guarantee complete safety for all investors, we use the most advanced DeFi security architecture on Uniswap V4:
+
+- **90% Base Liquidity (BURNED)** 🔥
+  The main liquidity pool NFT is permanently burned (sent to `0x000...dEaD`). This means the core trading liquidity is locked forever. **It is mathematically impossible to rug-pull the LP.** Users can trade safely for eternity!
+
+- **10% Marketing Liquidity (SMART VAULT)** 🧠
+  Instead of keeping marketing tokens in a dev wallet (which creates dump risks), 100% of the marketing supply is deployed as *Single-Sided Liquidity* in the V4 pool, far above the launch price.
+  These tokens are locked in the `IRLMarketingVault` smart contract. 
+  **The Vault mathematically blocks the dev from withdrawing IRL tokens.** The dev can ONLY collect ETH once the market naturally buys those tokens at higher market caps.
+  ➡️ *Zero red candles. Zero dump risk. 100% organic transparent growth.*
+
 ---
 
 ## 📊 Tokenomics

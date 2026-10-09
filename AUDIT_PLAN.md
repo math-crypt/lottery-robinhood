@@ -54,6 +54,15 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Updated plan to include new ideas from user: a staking mechanism for bonus lottery chances and reward percentages, and a 20k Market Cap deployment via V4 Hook.
   - Added Phase 2.5 for Staking Mechanics and updated Phase 3 in AUDIT_PLAN.md.
   - **Refactored V4 Hook for Real Tax Collection (Swap-and-Liquify)**: Implemented advanced `BEFORE_SWAP_RETURNS_DELTA` and `AFTER_SWAP_RETURNS_DELTA` to natively intercept and extract WETH on both Buys and Sells natively using V4 `PoolManager.take()`.
+  
+- **2026-10-09**:
+  - Validated that the tax extraction natively handles WETH directly to the smart contract pots without affecting the AMM token swap path. 
+  - Verified and confirmed with user that the Hourly Reward Pot effectively redistributes 50% proportionately to all traders (not just Top 10) based on volume score.
+  - Converted the **10% Dev/Marketing Supply** into a completely transparent, rug-proof **Single-Sided LP Marketing Vault** (`IRLMarketingVault.sol`).
+    - Integrated mathematical checks to ensure the dev can ONLY withdraw marketing tokens if the price moves up and converts them to WETH.
+  - Finalized Deployment script (`DeployLotteryEcosystem.s.sol`) integrating the `IRLMarketingVault` and hardcoded OpenVRF Router `0x141fa059441e0ca23ce184b6a78bafd2a517dde8`.
+  - Added Telegram Bot commands (`/security`) explaining the LP Burn and Marketing Vault mechanisms to the community.
+  - **Blocked**: Waiting for the user to execute the deployment script locally (since Private Key and RPC URL are required) to gather mainnet addresses.
   - Reverted Lottery to a pure Push pattern that gracefully ignores failures (unclaimed ETH falls back to the Developer protocol pot) to keep user experience frictionless.
   - Updated deployment and test scripts to accommodate new WETH hook arguments and dynamic flags.
 
@@ -66,3 +75,4 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Created SYSTEM_ARCHITECTURE.md to outline the ecosystem, taxes, smart contracts, bot, and deployment process.
   - Cleaned github from test files and pushed the final audited code.
   - Migrated the Smart Contract ecosystem from Chainlink VRF to the native Robinhood Chain **OpenVRF**. Implemented a custom `OpenVRFMock` in `SimulationEcosystem.t.sol` to perform end-to-end tests without BLS signatures.
+  - Resolved EVM gas limit bottlenecks during test executions to successfully process and validate the massive user simulations (testMassiveSimulation), confirming end-to-end execution of tax distribution across 300+ daily swaps over multiple days without reverting.

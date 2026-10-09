@@ -14,9 +14,27 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
 import {IRLStaking} from "./IRLStaking.sol";
 
-// OpenVRF Imports
-import {RandomnessConsumer} from "../lib/openvrf/src/RandomnessConsumer.sol";
-import {OpenVRF} from "../lib/openvrf/src/OpenVRF.sol";
+// Local OpenVRF Interface
+interface IOpenVRF {
+    function requestRandomness(uint32 callbackGasLimit) external payable returns (uint256 id);
+    function requestFee() external view returns (uint256);
+}
+
+abstract contract IRLRandomnessConsumer {
+    IOpenVRF public immutable randomnessRouter;
+
+    constructor(address router) {
+        require(router.code.length > 0, "Invalid router");
+        randomnessRouter = IOpenVRF(router);
+    }
+
+    function rawFulfillRandomness(uint256 id, uint256 word) external {
+        require(msg.sender == address(randomnessRouter), "Only router");
+        _fulfillRandomness(id, word);
+    }
+
+    function _fulfillRandomness(uint256 id, uint256 word) internal virtual;
+}
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -31,7 +49,7 @@ import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automatio
  * @title IRL Uniswap V4 Hook
  * @dev Implements the Lottery Robinhood ecosystem logic: 3% Tax natively collected in ETH, Top 10 Tracking, NFT minting, Automations, OpenVRF and Anti-Whale checks.
  */
-contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, RandomnessConsumer, Ownable, ReentrancyGuard {
+contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomnessConsumer, Ownable, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
@@ -100,7 +118,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, Randomness
         address _stakingContract,
         address openVrfRouter,
         address _weth
-    ) BaseHook(_poolManager) RandomnessConsumer(OpenVRF(openVrfRouter)) Ownable(msg.sender) {
+    ) BaseHook(_poolManager) IRLRandomnessConsumer(openVrfRouter) Ownable(msg.sender) {
         nftTicket = IRLTicketNFT(_nftTicket);
         stakingContract = IRLStaking(_stakingContract);
         weth = IWETH(_weth);
