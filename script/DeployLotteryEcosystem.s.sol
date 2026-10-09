@@ -29,9 +29,9 @@ contract DeployLotteryEcosystem is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
         
-        // Robinhood Chain Addresses (Loaded from .env)
-        address weth = vm.envAddress("ROBINHOOD_WETH_ADDRESS"); 
-        address poolManager = vm.envAddress("ROBINHOOD_POOL_MANAGER"); 
+        // Robinhood Chain Addresses (Chain ID 4663)
+        address weth = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73; 
+        address poolManager = 0x8366a39cc670b4001a1121b8f6a443a643e40951; 
         
         vm.startBroadcast(deployerPrivateKey);
 
