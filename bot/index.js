@@ -56,8 +56,8 @@ We steal from the whales to give back to the community! $IRL is an innovative De
 
 🌟 *Core Mechanics:*
 
-1️⃣ **The Daily Lottery (Chainlink VRF)**
-Trade $IRL to accumulate volume. Every time you cross the volume threshold, an **NFT Ticket** is automatically minted to your wallet. Every day, a Chainlink VRF oracle draws a random winning ticket, and the holder instantly receives the entire Daily Lottery Pot in ETH!
+1️⃣ **The Daily Lottery (OpenVRF)**
+Trade $IRL to accumulate volume. Every time you cross the volume threshold, an **NFT Ticket** is automatically minted to your wallet. Every day, an OpenVRF oracle draws a random winning ticket, and the holder instantly receives the entire Daily Lottery Pot in ETH!
 
 2️⃣ **Hourly Rewards (The Robinhood Split)**
 The 1% Hourly Reward Pot is split in two:
@@ -77,7 +77,7 @@ Use /tokenomics to see the exact tax breakdown, or /contracts to verify our code
 });
 
 bot.command('tokenomics', (ctx) => {
-    const text = `📊 *$IRL Tokenomics & Taxes* 📊\n\nThere is a strict *3% tax* on every swap (buys and sells), extracted natively in WETH:\n\n🏆 *1% Daily Lottery*: 100% of this pot goes to a random ticket holder every day via Chainlink VRF!\n⏱️ *1% Hourly Rewards*: Split 50/50! Half goes to the **Global Trader Pool** (shared proportionally to your Volume Score), and the other half is automatically redistributed to all traders on every trade.\n⚙️ *1% Protocol*: Used to pay for Chainlink VRF gas, automation upkeep, and marketing.\n\nNo tokens are dumped on the chart; taxes are collected cleanly in WETH!`;
+    const text = `📊 *$IRL Tokenomics & Taxes* 📊\n\nThere is a strict *3% tax* on every swap (buys and sells), extracted natively in WETH:\n\n🏆 *1% Daily Lottery*: 100% of this pot goes to a random ticket holder every day via OpenVRF!\n⏱️ *1% Hourly Rewards*: Split 50/50! Half goes to the **Global Trader Pool** (shared proportionally to your Volume Score), and the other half is automatically redistributed to all traders on every trade.\n⚙️ *1% Protocol*: Used to pay for OpenVRF gas, automation upkeep, and marketing.\n\nNo tokens are dumped on the chart; taxes are collected cleanly in WETH!`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
@@ -142,7 +142,7 @@ async function setupListeners() {
         const prizeEth = parseFloat(ethers.formatEther(prize)).toFixed(4);
         const txHash = event.log.transactionHash;
         
-        const message = `🎉 *NEW LOTTERY WINNER!* 🎉\n\nTicket #${tokenId.toString()} was just drawn by Chainlink VRF!\n\n👤 Winner: \`${winner}\`\n💸 Prize: *${prizeEth} ETH* transferred instantly!\n\nCongratulations to the winner! 🏹`;
+        const message = `🎉 *NEW LOTTERY WINNER!* 🎉\n\nTicket #${tokenId.toString()} was just drawn by OpenVRF!\n\n👤 Winner: \`${winner}\`\n💸 Prize: *${prizeEth} ETH* transferred instantly!\n\nCongratulations to the winner! 🏹`;
         
         if(CHANNEL_ID) {
             try {

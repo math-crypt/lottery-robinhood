@@ -34,9 +34,9 @@ Join the community: [t.me/InternetRobinhoodLottery](https://t.me/InternetRobinho
 
 All mechanics are built directly into the Uniswap V4 Liquidity Pool via a custom Hook. There are zero external dependencies to execute tokenomics, meaning the chart never dumps to fund rewards!
 
-### 1️⃣ The Daily Lottery (Chainlink VRF)
+### 1️⃣ The Daily Lottery (OpenVRF)
 Trade $IRL to accumulate volume. Every time you cross the volume threshold, an **NFT Ticket** is automatically minted to your wallet.
-Every day, a **Chainlink VRF** oracle draws a random winning ticket, and the holder instantly receives the entire **1% Daily Lottery Pot** in ETH!
+Every day, an **OpenVRF** oracle draws a random winning ticket, and the holder instantly receives the entire **1% Daily Lottery Pot** in ETH!
 
 ### 2️⃣ Hourly Rewards (Dynamic Global Score)
 The 1% Hourly Reward Pot is split in two:
@@ -56,7 +56,7 @@ Strict **3% tax** on every swap (buys and sells), extracted natively in WETH:
 
 - 🏆 **1% Daily Lottery**: Airdropped to a random ticket holder daily.
 - ⏱️ **1% Hourly Rewards**: Split 50/50 between the Global Trader Pool and Instant Cashback.
-- ⚙️ **1% Protocol**: Used to pay for Chainlink VRF gas, automation upkeep, and marketing.
+- ⚙️ **1% Protocol**: Used to pay for OpenVRF gas, automation upkeep, and marketing.
 
 *Initial Market Cap: $20,000 with strict Anti-Whale max transaction limits at launch.*
 
