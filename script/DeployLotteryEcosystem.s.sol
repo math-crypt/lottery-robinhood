@@ -29,9 +29,9 @@ contract DeployLotteryEcosystem is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
         
-        // Arbitrum One (Robinhood Chain) Mainnet Addresses
-        address weth = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1; // Arbitrum WETH
-        address poolManager = 0x360e68faccca8ca495c1b759fd9eee466db9fb32; // Uniswap V4 PoolManager on Arbitrum
+        // Robinhood Chain Addresses (Loaded from .env)
+        address weth = vm.envAddress("ROBINHOOD_WETH_ADDRESS"); 
+        address poolManager = vm.envAddress("ROBINHOOD_POOL_MANAGER"); 
         
         vm.startBroadcast(deployerPrivateKey);
 
@@ -52,9 +52,9 @@ contract DeployLotteryEcosystem is Script {
             Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
             Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
-        // Arbitrum One VRF Coordinator V2
-        address vrfCoordinator = 0x410346CE619dDe86121D54b42E5E2c8B2A70Ad6E; 
-        // NOTE: The SubId and KeyHash must be obtained from https://vrf.chain.link (Arbitrum One)
+        // Chainlink VRF Coordinator on Robinhood Chain
+        address vrfCoordinator = vm.envAddress("ROBINHOOD_VRF_COORDINATOR"); 
+        // NOTE: The SubId and KeyHash must be obtained from Robinhood Chain's Chainlink deployment
         uint64 subId = uint64(vm.envUint("VRF_SUB_ID")); // Provide this in .env
         bytes32 keyHash = vm.envBytes32("VRF_KEY_HASH"); // Provide this in .env
         
