@@ -65,3 +65,4 @@ Develop a smart contract ecosystem for a "Lottery" and "Robinhood" redistributio
   - Rebalanced the NFT Ticket staking logic: Tracked volume in WETH (0.05 WETH threshold per ticket) to prevent inflated volume calculations. Capped maximum staking tickets exponentially (x2 required for each additional max ticket).
   - Created SYSTEM_ARCHITECTURE.md to outline the ecosystem, taxes, smart contracts, bot, and deployment process.
   - Cleaned github from test files and pushed the final audited code.
+  - Migrated the Smart Contract ecosystem from Chainlink VRF to the native Robinhood Chain **OpenVRF**. Implemented a custom `OpenVRFMock` in `SimulationEcosystem.t.sol` to perform end-to-end tests without BLS signatures.

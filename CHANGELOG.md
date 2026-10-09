@@ -3,7 +3,15 @@
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+
 ### Added
+- **OpenVRF Integration**: Migrated the Lottery Hook from Chainlink VRF to the native, `drand`-backed OpenVRF architecture required by Robinhood Chain.
+- Submodule `lib/openvrf` added to support the new `RandomnessConsumer` interface.
+
+### Changed
+- `IRLUniswapV4Hook.sol` now inherits from `RandomnessConsumer` instead of `VRFConsumerBaseV2`.
+- `DeployLotteryEcosystem.s.sol` updated to inject the OpenVRF Router address and removed legacy Chainlink variables.
+- Hardcoded `WETH` and `PoolManager` addresses specific to the Robinhood Chain (Chain ID 4663).
 - **Staking Mechanics (Phase 2.5):** Created `IRLStaking.sol` and integrated it into the V4 Hook.
 - Added Staking Multipliers in Hook: +1 max lottery ticket per 10k IRL staked.
 - Added Staking Multipliers in Hook: +1% bonus on hourly volume rewards per 10k IRL staked (capped at +50%).
