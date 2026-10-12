@@ -21,8 +21,7 @@ node_modules/
 dapp/node_modules/
 dapp/dist/
 
-# Test files
-test/
+# Test simulation scripts
 script/Simulation*.s.sol
 
 # AI Agent & Skills (Private local development tools)
