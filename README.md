@@ -214,16 +214,26 @@ The Hook reads pool prices on every swap. As soon as the price organically cross
 
 ## 8. Telegram Bot Integration
 
-The official Telegram bot interfaces directly with the smart contracts on Robinhood Chain via JSON-RPC:
+The official Telegram bot interfaces directly with the smart contracts on Robinhood Chain via JSON-RPC, providing real-time community engagement, automated winner broadcasts, and live onchain queries:
 
-- 🏆 **Daily & Sunday Winner Announcements:** Instant pinned messages with winner address, ticket ID, prize in ETH, and block explorer verification link.
-- ⏱️ **Hourly Pot Alerts:** Live notification as hourly rewards are dispatched to the Top 10, swappers, and stakers.
-- 🔍 **Interactive Commands:**
-  - `/tokenomics` — Live tax and pot distribution breakdown.
-  - `/stake` — Instructions on staking quotas, progressive tiers, and ETH dividends.
-  - `/pot` — Current balances of the Daily, Sunday, and Hourly pots.
-  - `/contracts` — Verified contract addresses and block explorer links.
-  - `/security` — Audit and rug-proof LP architecture guarantees.
+- 🏆 **Daily & Sunday Winner Announcements:** Instant pinned messages broadcasting the winner address, ticket ID, prize in ETH, and direct block explorer verification link.
+- ⏱️ **Hourly Pot Alerts:** Live notification as hourly rewards are dispatched to the Top 10 volume traders, active swappers, and stakers.
+- 🔔 **New Member Guidance:** Automatic greeting explaining the Robinhood thesis, pre-launch status, and official safety warnings.
+
+### 🔍 Complete Command Directory
+
+| Command | Category | Description | Onchain Execution / Source |
+| :--- | :--- | :--- | :--- |
+| `/start` | Onboarding | Welcomes new members, displays pre-launch status alert, official links, and interactive buttons. | Static / Community |
+| `/about` | Architecture | Comprehensive overview of the Robinhood thesis, V4 Hook mechanics, 4.0% swap tax, and anti-whale protections. | Architecture |
+| `/tokenomics` | Economics | In-depth breakdown of the 4.0% swap tax (1% Programmable, 1% Hourly 35/35/30, 1% Dual Lottery 50/50, 1% Protocol 90/10) and 0.60% double-deflation burn. | Smart Contract Specs |
+| `/contracts` | Verification | Displays verified smart contract addresses ($IRL Token, V4 Hook, NFT Tickets, Staking Vault, Marketing Vault) with RobinhoodScan explorer links. | Live Onchain Registry |
+| `/launch` | Roadmap | Current pre-launch phase, network details (Robinhood Chain, Chain ID 4663), 90% burned LP proof, and fair launch roadmap. | Deployment Specs |
+| `/socials` | Community | Verified links to official 𝕏 ([@IRL_Protocol](https://x.com/IRL_Protocol)), Telegram ([t.me/InternetRobinhoodLottery](https://t.me/InternetRobinhoodLottery)), and GitHub. *(Aliases: `/x`, `/twitter`)* | Official Channels |
+| `/stake` | Real Yield | Complete guide to staking $IRL: native ETH dividends from 30% hourly stream, up to 10 free tickets every 4 days, up to +50% volume multiplier, and expanded limits. | `IRLStaking.sol` |
+| `/security` | Audit & Safety | Rug-proof liquidity architecture: 90% base liquidity burned to `0x000...dEaD` and 10% marketing allocation locked in `IRLMarketingVault.sol` with mathematical tick bounds. | `IRLMarketingVault.sol` |
+| `/tickets` | Dynamic Query | Queries the total number of NFT lottery tickets currently in play, volume thresholds (0.10 WETH base), free staking tickets, and daily limits. | `IRLTicketNFT.totalTicketsMinted()` |
+| `/pot` | Live Treasury | Real-time balances of all onchain prize pots: Daily Grand Jackpot, Sunday Mega-Jackpot, Hourly Trader Pool, and Buyback & Burn Reserve. | `IRLUniswapV4Hook` View Methods |
 
 ### 🌐 Official Community & Social Links
 
@@ -242,7 +252,7 @@ Automated scanners (such as ZAUTH, Slither, CertiK) and independent auditors can
 - **100% Original Core Architecture:** The central business logic—including the multi-tier lottery engine, dynamic volume-weighted scoring, progressive staking multipliers, and the Single-Sided LP Marketing Vault—was developed from scratch and exhibits zero matching signatures across public repositories.
 - **Boilerplate Sanitation:** Standard Uniswap V4 scaffold scripts have been cleaned up; deployment and simulation are handled by our dedicated, custom-tailored harness (`script/DeployLotteryEcosystem.s.sol`).
 
-### 🧪 Comprehensive Verification Suite (16/16 Passing Tests)
+### 🧪 Comprehensive Verification Suite (23/23 Passing Tests)
 
 The repository includes a comprehensive Foundry simulation and security test suite covering multi-day, weekly, and monthly protocol dynamics:
 
@@ -277,6 +287,14 @@ forge test -v
    - Validates zero-address and self-address rejection on fee recipient updates (`InvalidRecipientZeroAddress`, `InvalidRecipientSelf`).
    - Simulates a reverting fee recipient contract; confirms fees buffer safely in `programmableFeePot` and can be claimed without reverting swaps.
    - Simulates a smart contract lottery winner that reverts on receiving ETH; asserts that the prize redirects to `protocolPot` rather than causing funds to be permanently locked or reverting the oracle callback.
+5. **Exhaustive Stress Testing & Edge Cases (`test/StressAndEcosystemValidation.t.sol`):**
+   - Validates half-tier staking (10M $IRL = 1% supply) with exact linear interpolation across volume ticket caps (6 -> 8 -> 10), volume multipliers (0% -> 25% -> 50%), and free 4-day epoch tickets (0 -> 5 -> 10).
+   - Verifies 4.0% swap tax distribution down to the exact wei across 1.0 ETH, 0.1 ETH, and 10.0 ETH swaps.
+   - Enforces strict daily volume NFT ticket caps (6, 8, 10) with excess volume minting zero extra tickets.
+   - Stress-tests hourly rewards queue with 60+ traders exceeding the 50-item batch limit, demonstrating safe multi-batch execution without out-of-gas errors.
+   - Simulates massive scale daily and weekly lotteries with 50 active traders generating hundreds of tickets.
+   - Verifies all RPC contract view queries used by the Telegram bot.
+   - Validates developer Single-Sided LP Marketing Vault anti-rug invariant and fee collection of WETH.
 
 ---
 
