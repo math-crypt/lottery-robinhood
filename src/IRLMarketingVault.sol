@@ -8,6 +8,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionInfo, PositionInfoLibrary} from "v4-periphery/src/libraries/PositionInfoLibrary.sol";
+import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
@@ -52,18 +53,19 @@ contract IRLMarketingVault is IERC721Receiver {
      */
     function collectFees(
         uint256 tokenId,
-        uint128 amount0Max,
-        uint128 amount1Max
+        uint128 amount0Min,
+        uint128 amount1Min
     ) external onlyOwner returns (uint256 amount0, uint256 amount1) {
-        // Collect fees but do not decrease liquidity
-        // We use the PositionManager to collect
-        bytes memory actions = new bytes(1);
-        actions[0] = 0x05; // COLLECT
+        (PoolKey memory poolKey, ) = positionManager.getPoolAndPositionInfo(tokenId);
 
-        bytes[] memory params = new bytes[](1);
-        params[0] = abi.encode(tokenId, msg.sender, amount0Max, amount1Max);
+        bytes[] memory params = new bytes[](2);
+        params[0] = abi.encode(tokenId, 0, amount0Min, amount1Min, "");
+        params[1] = abi.encode(poolKey.currency0, poolKey.currency1, msg.sender);
 
-        positionManager.modifyLiquidities(abi.encode(actions, params), type(uint256).max);
+        positionManager.modifyLiquidities(
+            abi.encode(abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR)), params),
+            type(uint256).max
+        );
         
         emit FeesCollected(tokenId, amount0, amount1);
     }
@@ -74,8 +76,8 @@ contract IRLMarketingVault is IERC721Receiver {
     function decreaseLiquidityAndCollect(
         uint256 tokenId,
         uint128 liquidity,
-        uint128 amount0Max,
-        uint128 amount1Max
+        uint128 amount0Min,
+        uint128 amount1Min
     ) external onlyOwner {
         // 1. Verify the position's tick bounds
         (PoolKey memory poolKey, PositionInfo info) = positionManager.getPoolAndPositionInfo(tokenId);
@@ -98,16 +100,15 @@ contract IRLMarketingVault is IERC721Receiver {
             require(currentTick <= tickLower, "Market bracket not reached: IRL not yet converted to WETH (tick > tickLower)");
         }
 
-        // Decrease Liquidity
-        bytes memory actions = new bytes(2);
-        actions[0] = 0x04; // DECREASE_LIQUIDITY
-        actions[1] = 0x05; // COLLECT
-
+        // Decrease Liquidity & Take pair to msg.sender
         bytes[] memory params = new bytes[](2);
-        params[0] = abi.encode(tokenId, liquidity, 0, 0); // min amounts = 0
-        params[1] = abi.encode(tokenId, msg.sender, amount0Max, amount1Max);
+        params[0] = abi.encode(tokenId, liquidity, amount0Min, amount1Min, "");
+        params[1] = abi.encode(poolKey.currency0, poolKey.currency1, msg.sender);
 
-        positionManager.modifyLiquidities(abi.encode(actions, params), type(uint256).max);
+        positionManager.modifyLiquidities(
+            abi.encode(abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR)), params),
+            type(uint256).max
+        );
         
         emit LiquidityDecreased(tokenId, 0, 0);
     }
