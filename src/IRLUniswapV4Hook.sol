@@ -101,6 +101,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     event SundayMegaJackpotRequested(uint256 requestId, uint256 weekId);
     event BuybackAndBurnExecuted(uint256 ethAmount);
     event ProgrammableFeeTransferred(address indexed recipient, uint256 amount);
+    event ProgrammableFeeTransferFailed(address indexed recipient, uint256 amount);
     event ProgrammableFeeRecipientUpdated(address indexed newRecipient);
 
     function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
@@ -108,18 +109,21 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     function setProgrammableFeeRecipient(address _recipient) external onlyOwner {
+        require(_recipient != address(0), "InvalidRecipientZeroAddress");
+        require(_recipient != address(this), "InvalidRecipientSelf");
         programmableFeeRecipient = _recipient;
         emit ProgrammableFeeRecipientUpdated(_recipient);
     }
 
     function claimProgrammableFees() external nonReentrant {
+        require(msg.sender == owner() || msg.sender == programmableFeeRecipient, "Unauthorized");
         uint256 feeToClaim = programmableFeePot;
-        if (feeToClaim > 0 && programmableFeeRecipient != address(0)) {
-            programmableFeePot = 0;
-            (bool success, ) = payable(programmableFeeRecipient).call{value: feeToClaim}("");
-            require(success, "Programmable fee transfer failed");
-            emit ProgrammableFeeTransferred(programmableFeeRecipient, feeToClaim);
-        }
+        require(feeToClaim > 0, "No fees to claim");
+        require(programmableFeeRecipient != address(0), "Recipient not set");
+        programmableFeePot = 0;
+        (bool success, ) = payable(programmableFeeRecipient).call{value: feeToClaim}("");
+        require(success, "Programmable fee transfer failed");
+        emit ProgrammableFeeTransferred(programmableFeeRecipient, feeToClaim);
     }
 
     // --- CONSTANTS ---
@@ -346,6 +350,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
             if (!success) {
                 programmableFeePot += progFee;
+                emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
             } else {
                 emit ProgrammableFeeTransferred(programmableFeeRecipient, progFee);
             }
@@ -537,17 +542,21 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         uint256 currentDay = block.timestamp / 1 days;
         uint256 currentWeek = (block.timestamp + 3 days) / 7 days;
         
-        if (currentHour > lastProcessedHour && queueIndex == queueLength) {
-            return (true, abi.encode(uint8(1), 0));
-        }
+        // 1. In-flight batch queue processing
         if (queueIndex < queueLength) {
             return (true, abi.encode(uint8(2), 0));
         }
+        // 2. Daily lottery draw when day boundary is reached
         if (currentDay > lastLotteryDay) {
             return (true, abi.encode(uint8(3), currentDay));
         }
+        // 3. Sunday Mega-Jackpot draw when weekly boundary is reached
         if (currentWeek > lastLotteryWeek) {
             return (true, abi.encode(uint8(4), currentWeek));
+        }
+        // 4. Hourly distribution setup
+        if (currentHour > lastProcessedHour && queueIndex == queueLength) {
+            return (true, abi.encode(uint8(1), 0));
         }
         
         return (false, "");
@@ -557,6 +566,10 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         (uint8 actionType, uint256 timeId) = abi.decode(performData, (uint8, uint256));
         
         if (actionType == 1) {
+            uint256 curHour = block.timestamp / 1 hours;
+            while (lastProcessedHour < curHour - 1 && allTradersPerHour[lastProcessedHour].length == 0) {
+                lastProcessedHour++;
+            }
             distributingHourId = lastProcessedHour;
             _setupHourDistribution(lastProcessedHour);
             lastProcessedHour++;

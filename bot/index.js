@@ -8,7 +8,7 @@ const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 // Contract Addresses
 const HOOK_ADDRESS = process.env.HOOK_ADDRESS;
 const NFT_ADDRESS = process.env.NFT_ADDRESS;
-const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || "0x71e8609517595c21966a01ec3a6d252fe05a4663";
+const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || "";
 
 // Explorer URL Base
 const EXPLORER_URL = process.env.EXPLORER_URL || "https://explorer.robinhood.com";
