@@ -1,0 +1,53 @@
+# Compiler files
+cache/
+out/
+
+# Ignores development (and goerli) broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/*/5/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+
+# Dotenv file
+.env
+*.env
+bot/.env
+
+# Node modules
+node_modules/
+dapp/node_modules/
+dapp/dist/
+
+# Test files
+test/
+script/Simulation*.s.sol
+
+# AI Agent & Skills (Private local development tools)
+.agents/
+.impeccable/
+
+# Phase 2 Web Interface (Private until official launch)
+dapp/
+PRODUCT.md
+DESIGN.md
+
+# Internal Audits, Changelogs & Working Documents
+AUDIT_PLAN.md
+CHANGELOG.md
+BACKLOG.md
+ZAUTH_AUDIT_V2.md
+MARKETING_*.md
+Grant_Proposal.html
+LAUNCH_GUIDE.md
+_private_local/
+
+# Media, Motion Graphics & Social Marketing Assets (TG, X, etc. - Private local files)
+assets/*.mp4
+assets/*.gif
+assets/*.webm
+assets/*_preview*
+assets/x_launch_post*
+
