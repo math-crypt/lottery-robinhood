@@ -1,6 +1,8 @@
 [profile.default]
 remappings = [
+    "bls-solidity/=lib/openvrf/lib/bls-solidity/src/",
     "openzeppelin-contracts/=lib/openvrf/lib/openzeppelin-contracts/contracts/",
+    "openvrf/=lib/openvrf/src/",
 ]
 bytecode_hash = "none"
 evm_version = "cancun"

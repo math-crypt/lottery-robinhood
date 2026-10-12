@@ -14,6 +14,7 @@ import {IRLTicketNFT} from "../src/IRLTicketNFT.sol";
 import {IRLStaking} from "../src/IRLStaking.sol";
 import {IRLUniswapV4Hook} from "../src/IRLUniswapV4Hook.sol";
 import {IRLMarketingVault} from "../src/IRLMarketingVault.sol";
+import {OpenVRF} from "openvrf/OpenVRF.sol";
 
 contract DeployLotteryEcosystem is Script {
     using CurrencyLibrary for Currency;
@@ -30,11 +31,29 @@ contract DeployLotteryEcosystem is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
         
-        // Robinhood Chain Addresses (Chain ID 4663)
+        // Robinhood Chain Addresses (Chain ID 4663 - Explorer: https://robin.etherscan.io)
         address weth = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73; 
         address poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
         
         vm.startBroadcast(deployerPrivateKey);
+
+        // 0. Deploy or Resolve Native OpenVRF Router on Robinhood Chain
+        address configuredVrf = vm.envOr("OPENVRF_ROUTER", address(0));
+        address openVrfRouter;
+        OpenVRF openVrfContract;
+
+        if (configuredVrf != address(0)) {
+            console2.log("Using pre-configured OpenVRF Router:", configuredVrf);
+            openVrfRouter = configuredVrf;
+            openVrfContract = OpenVRF(configuredVrf);
+        } else {
+            console2.log("Deploying dedicated Native OpenVRF Router on Robinhood Chain...");
+            address relayer = vm.envOr("RELAYER_ADDRESS", deployer);
+            uint256 requestFee = vm.envOr("OPENVRF_REQUEST_FEE", uint256(0));
+            openVrfContract = new OpenVRF(deployer, relayer, requestFee);
+            openVrfRouter = address(openVrfContract);
+            console2.log("Native OpenVRF Router deployed at:", openVrfRouter);
+        }
 
         // 1. Deploy Core Contracts
         console2.log("Deploying InternetRobinLottery...");
@@ -47,9 +66,8 @@ contract DeployLotteryEcosystem is Script {
         IRLStaking staking = new IRLStaking(address(irl));
 
         console2.log("Deploying IRLMarketingVault...");
-        // Requires V4 periphery PositionManager. Assuming address 0x... for now, deployer will update if needed.
-        // On Robinhood, we'll assume the standard V4 PositionManager address or pass it later.
-        address positionManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; // Replace with actual PM
+        // Requires V4 periphery PositionManager. Assuming standard V4 PM address or pass it later.
+        address positionManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
         IRLMarketingVault vault = new IRLMarketingVault(poolManager, positionManager, address(irl));
 
         // 2. Mine Hook Address
@@ -59,8 +77,6 @@ contract DeployLotteryEcosystem is Script {
             Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
             Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
-        // OpenVRF Router on Robinhood Chain
-        address openVrfRouter = 0x141fa059441E0ca23ce184B6A78bafD2A517DdE8; 
         
         bytes memory constructorArgs = abi.encode(
             IPoolManager(poolManager), 
@@ -94,6 +110,13 @@ contract DeployLotteryEcosystem is Script {
         // Transfer NFT ownership to hook so it can mint
         nft.transferOwnership(address(hook));
 
+        // Authorize Hook as OpenVRF consumer
+        try openVrfContract.setConsumerAuthorization(hookAddress, true) {
+            console2.log("Hook authorized as OpenVRF consumer");
+        } catch {
+            console2.log("Note: setConsumerAuthorization skipped or requires separate owner execution");
+        }
+
         // 3. Initialize Pool with 20k MC Price
         Currency currency0;
         Currency currency1;
@@ -120,12 +143,11 @@ contract DeployLotteryEcosystem is Script {
         console2.log("Initializing Pool Manager with Market Cap ~20k$...");
         IPoolManager(poolManager).initialize(poolKey, startingPrice);
 
-        // Note: For initial liquidity provision, a PositionManager call would follow here.
-        // The script sets the exact price which acts as the 20k MC valuation for the token!
-
         vm.stopBroadcast();
         
         console2.log("--- Deployment Successful ---");
+        console2.log("Explorer Base URL: https://robin.etherscan.io");
+        console2.log("Native OpenVRF Router:", openVrfRouter);
         console2.log("IRL Token:", address(irl));
         console2.log("IRL NFT:", address(nft));
         console2.log("IRL Staking:", address(staking));

@@ -11,7 +11,7 @@ const NFT_ADDRESS = process.env.NFT_ADDRESS;
 const TOKEN_ADDRESS = process.env.TOKEN_ADDRESS || "";
 
 // Explorer URL Base
-const EXPLORER_URL = process.env.EXPLORER_URL || "https://explorer.robinhood.com";
+const EXPLORER_URL = process.env.EXPLORER_URL || "https://robin.etherscan.io";
 
 // Simple ABIs
 const hookAbi = [
@@ -163,7 +163,7 @@ bot.command('contracts', (ctx) => {
         return ctx.reply(text, { parse_mode: 'Markdown' });
     }
     const text = `📜 *Official Smart Contracts* 📜\n\n` +
-        `Verify our code directly on Robinhood Scan:\n\n` +
+        `Verify our code directly on Robinhood Etherscan:\n\n` +
         `🪙 *$IRL Token*: \`${TOKEN_ADDRESS}\`\n` +
         `🪝 *Uniswap V4 Hook*: \`${HOOK_ADDRESS}\`\n` +
         `🎟️ *NFT Tickets*: \`${NFT_ADDRESS}\`\n\n` +
@@ -179,7 +179,7 @@ bot.command('launch', (ctx) => {
         `2️⃣ **Network**: Robinhood Chain (Arbitrum L2, Chain ID 4663).\n` +
         `3️⃣ **Fair Launch**: 90% of base liquidity will be permanently burned to 0xdead at launch, with 10% locked in the Single-Sided LP Marketing Vault.\n` +
         `4️⃣ **Current Status**: *Pre-Launch Phase*. Contracts are NOT yet live.\n\n` +
-        `📢 *Stay tuned on 𝕏 and Telegram!* The official launch time, RobinhoodScan links, and DEX pairs will be announced simultaneously.\n` +
+        `📢 *Stay tuned on 𝕏 and Telegram!* The official launch time, Robinhood Etherscan links, and DEX pairs will be announced simultaneously.\n` +
         `• 𝕏: [x.com/IRL_Protocol](https://x.com/IRL_Protocol)\n` +
         `• Telegram: [t.me/InternetRobinhoodLottery](https://t.me/InternetRobinhoodLottery)\n\n` +
         `Turn on notifications so you don't miss it! 🏹`;
@@ -314,7 +314,7 @@ async function setupListeners() {
                 const msg = await bot.telegram.sendMessage(CHANNEL_ID, message, { 
                     parse_mode: 'Markdown',
                     ...Markup.inlineKeyboard([
-                        Markup.button.url('🔍 View Transaction on Robinhood Scan', `${EXPLORER_URL}/tx/${txHash}`)
+                        Markup.button.url('🔍 View Transaction on Robinhood Etherscan', `${EXPLORER_URL}/tx/${txHash}`)
                     ])
                 });
                 await bot.telegram.pinChatMessage(CHANNEL_ID, msg.message_id);
@@ -335,7 +335,7 @@ async function setupListeners() {
                 const msg = await bot.telegram.sendMessage(CHANNEL_ID, message, { 
                     parse_mode: 'Markdown',
                     ...Markup.inlineKeyboard([
-                        Markup.button.url('🔍 View Transaction on Robinhood Scan', `${EXPLORER_URL}/tx/${txHash}`)
+                        Markup.button.url('🔍 View Transaction on Robinhood Etherscan', `${EXPLORER_URL}/tx/${txHash}`)
                     ])
                 });
                 await bot.telegram.pinChatMessage(CHANNEL_ID, msg.message_id);
@@ -353,7 +353,7 @@ async function setupListeners() {
             bot.telegram.sendMessage(CHANNEL_ID, message, { 
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([
-                    Markup.button.url('🔍 View Distribution on Robinhood Scan', `${EXPLORER_URL}/tx/${txHash}`)
+                    Markup.button.url('🔍 View Distribution on Robinhood Etherscan', `${EXPLORER_URL}/tx/${txHash}`)
                 ])
             }).catch(console.error);
         }
