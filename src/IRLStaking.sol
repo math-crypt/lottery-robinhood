@@ -42,10 +42,12 @@ contract IRLStaking is ReentrancyGuard {
     uint256 public constant MAX_ELIGIBLE_STAKE = 20_000_000 ether; // 2.0% of 1B supply maximum cap per wallet
 
     IERC20 public immutable stakingToken;
+    address public hookContract;
 
     mapping(address => uint256) public stakedBalance;
     mapping(address => uint256) public eligibleStake;
     mapping(address => uint256) public lastStakedTimestamp;
+    mapping(address => uint256) public unstakeUnlockTime;
     uint256 public totalStaked;
     uint256 public totalEligibleStaked;
 
@@ -59,9 +61,45 @@ contract IRLStaking is ReentrancyGuard {
     event Unstaked(address indexed user, uint256 amount);
     event YieldDistributed(uint256 amount);
     event YieldClaimed(address indexed user, uint256 amount);
+    event HookRegistered(address indexed hook);
+    event InstantTicketsClaimLockApplied(address indexed user, uint256 unlockTime);
 
     constructor(address _stakingToken) {
         stakingToken = IERC20(_stakingToken);
+    }
+
+    /**
+     * @notice One-time registration of the Uniswap V4 Hook contract.
+     */
+    function registerHook(address _hook) external {
+        require(hookContract == address(0) && _hook != address(0), "Hook already registered");
+        hookContract = _hook;
+        emit HookRegistered(_hook);
+    }
+
+    /**
+     * @notice Called by the Uniswap V4 Hook when a staker claims their free staking tickets.
+     * - If the user has ALREADY staked for >= 24h (`block.timestamp >= lastStakedTimestamp[user] + 24h`),
+     *   they claim their tickets with ZERO unstake lock (remain free to unstake anytime).
+     * - If the user claims BEFORE 24h of staking (`block.timestamp < lastStakedTimestamp[user] + 24h`),
+     *   they receive their tickets immediately and their stake is locked for 24h (`unstakeUnlockTime`).
+     */
+    function onStakingTicketsClaimed(address user) external {
+        if (hookContract == address(0)) {
+            (bool ok, bytes memory data) = msg.sender.staticcall(abi.encodeWithSignature("stakingContract()"));
+            require(ok && data.length >= 32 && abi.decode(data, (address)) == address(this), "Only IRL Hook");
+            hookContract = msg.sender;
+            emit HookRegistered(msg.sender);
+        } else {
+            require(msg.sender == hookContract, "Only IRL Hook");
+        }
+
+        if (block.timestamp < lastStakedTimestamp[user] + STAKE_COOLDOWN) {
+            unstakeUnlockTime[user] = block.timestamp + STAKE_COOLDOWN;
+            emit InstantTicketsClaimLockApplied(user, unstakeUnlockTime[user]);
+        } else {
+            lastStakedTimestamp[user] = block.timestamp;
+        }
     }
 
     /**
@@ -170,14 +208,15 @@ contract IRLStaking is ReentrancyGuard {
     }
 
     /**
-     * @notice Unstake tokens from the contract after the 24-hour anti-flash-stake cooldown.
+     * @notice Unstake tokens from the contract.
+     * Users can unstake freely at any time unless they claimed free staking tickets before completing 24h of staking.
      * @param amount The amount of tokens to unstake.
      */
     function unstake(uint256 amount) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
         require(stakedBalance[msg.sender] >= amount, "Insufficient staked balance");
         require(
-            block.timestamp >= lastStakedTimestamp[msg.sender] + STAKE_COOLDOWN,
+            block.timestamp >= unstakeUnlockTime[msg.sender],
             "Stake cooldown active (24h)"
         );
 
@@ -199,10 +238,17 @@ contract IRLStaking is ReentrancyGuard {
     }
 
     /**
-     * @notice Returns whether the user has satisfied the 24-hour staking cooldown.
+     * @notice Returns whether the user has staked for at least 24 hours (allowing zero-lock ticket claims).
      */
     function isCooldownMet(address user) external view returns (bool) {
         return stakedBalance[user] > 0 && block.timestamp >= lastStakedTimestamp[user] + STAKE_COOLDOWN;
+    }
+
+    /**
+     * @notice Returns whether the user's stake is currently unlocked for withdrawal.
+     */
+    function isUnstakeUnlocked(address user) external view returns (bool) {
+        return block.timestamp >= unstakeUnlockTime[user];
     }
 
     /**

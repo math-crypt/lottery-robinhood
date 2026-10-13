@@ -119,7 +119,16 @@ contract TrailOfBitsEcosystemInvariantsTest is Test {
         assertGt(claimed, 0);
         assertGe(token.balanceOf(address(staking)), staking.totalStaked());
 
-        // Unstaking before 24h cooldown reverts
+        // Bob (who has NOT claimed instant tickets) can unstake immediately with 0 lock
+        vm.prank(bob);
+        staking.unstake(bobAmount);
+        assertEq(staking.stakedBalance(bob), 0);
+        assertEq(staking.totalStaked(), aliceAmount);
+
+        // If Alice claims instant tickets before 24h of staking, her unstake is locked for 24h
+        staking.registerHook(address(this));
+        staking.onStakingTicketsClaimed(alice);
+
         vm.prank(alice);
         vm.expectRevert("Stake cooldown active (24h)");
         staking.unstake(aliceAmount);
@@ -129,7 +138,7 @@ contract TrailOfBitsEcosystemInvariantsTest is Test {
         vm.prank(alice);
         staking.unstake(aliceAmount);
         assertEq(staking.stakedBalance(alice), 0);
-        assertEq(staking.totalStaked(), bobAmount);
+        assertEq(staking.totalStaked(), 0);
         assertGe(token.balanceOf(address(staking)), staking.totalStaked());
     }
 

@@ -212,12 +212,15 @@ bot.command('stake', (ctx) => {
 
 Stake your $IRL tokens in the Real Yield Sanctuary to:
 1️⃣ Earn **Native ETH dividends** from 30% of every hourly swap pot (ranked across eligible stakers from 0.1% [1M $IRL] to 2.0% [20M $IRL] max tier).
-2️⃣ Receive up to **10 Free NFT Tickets** every 4 days progressively (1 ticket per 2M $IRL staked every 4 days).
+2️⃣ Receive up to **10 Free NFT Tickets** every 4 days progressively (1 ticket per 2M $IRL staked every 4 days) with our **Hybrid Free-Ticket Claim Mechanic**:
+   • *Zero Unstake Lock by Default*: Staking never locks your tokens unless you choose an instant ticket claim!
+   • *Option A (Wait 24h Staked)*: Claim your free tickets after 24h of staking with **0h unstake lock** (withdraw anytime).
+   • *Option B (Instant Claim <24h)*: Claim your up to 10 free tickets immediately upon staking, which locks unstake for **24 hours**.
 3️⃣ Get up to a **+50% (1.5x) Multiplier** on your trading volume for both the Top 10 hourly leaderboard AND ticket minting (e.g. at 2% staked, 0.05 WETH traded counts as 0.075 WETH volume; 0.075 WETH counts as 0.1125 WETH >= 0.10 WETH -> 1 ticket!).
 4️⃣ Increase your **Daily Volume Limit up to 10 tickets/day** (vs 6 for non-stakers), completely separate from your free 4-day tickets!
 5️⃣ Expand your **Marketplace & Holding Caps** up to 10 daily / 70 weekly tickets (vs 6 daily / 42 weekly for non-stakers), enforced directly on-chain!
 
-_Unlock the maximum bonuses by staking the full 2.0% supply quota (20M $IRL). Protected by a 24h anti-flash-loan cooldown after staking!_`;
+_Unlock the maximum bonuses by staking the full 2.0% supply quota (20M $IRL)!_`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
@@ -242,13 +245,13 @@ You can verify these locks on-chain via the /contracts menu!`;
 bot.command('tickets', async (ctx) => {
     if (!nftContract) {
         return ctx.reply(
-            "🎟️ *NFT Tickets System (Pre-Launch)*\n\n" +
+            "🎟️ *NFT Tickets & P2P Marketplace (Pre-Launch)*\n\n" +
             "The NFT tickets contract is *not yet live onchain*. It will be activated at the exact moment of launch!\n\n" +
             "🌟 *How it works once live:*\n" +
             "• Every trade ≥ 0.10 WETH volume automatically mints a verifiable onchain NFT ticket (boosted by staking multiplier).\n" +
-            "• **Free Staking Tickets**: Up to 10 free tickets claimable every 4 days (1 ticket per 2M $IRL staked).\n" +
-            "• **Daily Volume Limit**: 6 tickets/day for non-stakers, scaling up to 10 tickets/day for 2% stakers (separate from free staking tickets!).\n" +
-            "• **Marketplace & Holding Caps**: 6 daily / 42 weekly (6×7) for non-stakers, scaling up to 10 daily / 70 weekly (10×7) for 2% stakers.\n" +
+            "• **Free Staking Tickets (Hybrid Claim)**: Up to 10 free tickets claimable every 4 days (1 ticket per 2M $IRL staked) — claim after 24h staked with **0h lock**, or Instant-Claim (<24h) with a **24h unstake lock**.\n" +
+            "• **P2P Marketplace & 2.0% Lottery Tax**: Trade tickets on-chain (98% to seller, 2% Lottery Tax: 1% Daily + 1% Sunday for Daily+Weekly tickets, or 2% Sunday Mega-Jackpot for Weekly-only tickets).\n" +
+            "• **Holding Caps**: 6 daily / 42 weekly (6×7) for non-stakers, scaling up to 10 daily / 70 weekly (10×7) for 2% stakers.\n" +
             "• Tickets participate in the Daily Draw (midnight) and Sunday Mega-Jackpot (Sunday evening) via OpenVRF!\n\n" +
             "🔔 *Stay connected to get early tickets at launch!* 🏹",
             { parse_mode: 'Markdown' }

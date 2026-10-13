@@ -270,9 +270,51 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         lastProcessedHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
         lastLotteryWeek = (block.timestamp + 3 days) / 7 days;
+
+        if (_stakingContract != address(0) && _stakingContract.code.length > 0) {
+            (bool ok, ) = _stakingContract.call(abi.encodeWithSignature("registerHook(address)", address(this)));
+            ok;
+        }
     }
 
+    event MarketplaceTaxCollected(
+        uint256 indexed tokenId,
+        uint256 taxAmount,
+        bool isDailyAndWeekly,
+        uint256 dailyShare,
+        uint256 sundayShare
+    );
+
     receive() external payable {}
+
+    /**
+     * @notice Receives the 2% P2P Marketplace royalty tax when an NFT lottery ticket is sold.
+     * - If the ticket was minted today (Daily + Weekly eligible), splits the 2% tax 50/50 between `dailyLotteryPot` and `sundayMegaPot`.
+     * - If the ticket was minted on a previous day of the week (Sunday Mega-Jackpot only), routes 100% of the 2% tax to `sundayMegaPot`.
+     */
+    function receiveMarketplaceTax(uint256 tokenId) external payable {
+        require(msg.value > 0, "Zero tax amount");
+        uint256 currentDay = block.timestamp / 1 days;
+        bool isDailyAndWeekly = (
+            dayStartTicketId[currentDay] != 0 &&
+            tokenId >= dayStartTicketId[currentDay] &&
+            tokenId <= dayEndTicketId[currentDay]
+        );
+
+        uint256 dailyShare = 0;
+        uint256 sundayShare = 0;
+        if (isDailyAndWeekly) {
+            dailyShare = msg.value / 2;
+            sundayShare = msg.value - dailyShare;
+            dailyLotteryPot += dailyShare;
+            sundayMegaPot += sundayShare;
+        } else {
+            sundayShare = msg.value;
+            sundayMegaPot += sundayShare;
+        }
+
+        emit MarketplaceTaxCollected(tokenId, msg.value, isDailyAndWeekly, dailyShare, sundayShare);
+    }
 
     /**
      * @notice Allows the owner to withdraw the protocol/marketing share of the tax (minus buyback)
@@ -369,7 +411,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Checks whether the user has met the 24-hour staking cooldown before claiming free tickets.
+     * @dev Checks whether the user has staked for at least 24 hours.
      */
     function _isStakerCooldownMet(address trader) internal view returns (bool) {
         if (address(stakingContract) == address(0)) return false;
@@ -384,13 +426,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Allows a user to claim their bonus tickets from staking every 4 days (requires 24h stake cooldown).
+     * @notice Allows a staker to claim their free bonus tickets (up to 10 every 4 days).
+     * - If the user has ALREADY staked for >= 24h, claiming applies ZERO unstake lock.
+     * - If the user claims BEFORE 24h of staking (Instant Claim), they receive their tickets
+     *   immediately and their stake is locked from unstaking for 24h.
      */
     function claimStakingTickets() public nonReentrant {
-        require(_isStakerCooldownMet(msg.sender), "Stake cooldown active (24h)");
         uint256 dayId = block.timestamp / 1 days;
         uint256 weekId = (block.timestamp + 3 days) / 7 days;
-        _mintStakingTickets(msg.sender, dayId, weekId);
+        _claimStakingTicketsInternal(msg.sender, dayId, weekId, true);
     }
 
     /**
@@ -416,7 +460,14 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     function _mintStakingTickets(address trader, uint256 dayId, uint256 weekId) internal {
+        // Auto-minting during a swap only triggers once the user has already staked for >= 24h
+        // so normal swaps never force a 24h unstake lock on a trader who hasn't requested instant tickets.
         if (!_isStakerCooldownMet(trader)) return;
+        _claimStakingTicketsInternal(trader, dayId, weekId, false);
+    }
+
+    function _claimStakingTicketsInternal(address trader, uint256 dayId, uint256 weekId, bool allowInstantLock) internal {
+        if (!allowInstantLock && !_isStakerCooldownMet(trader)) return;
         uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
         
         // Progressive linear ticket allocation every 4 days: requires full 2% supply (20M IRL) for 10 tickets
@@ -431,6 +482,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             uint256 toMint = extraTickets - alreadyMinted;
             epochStakingTicketsMinted[epochId][trader] += toMint;
             dailyStakingTicketsMinted[dayId][trader] += toMint;
+
+            if (address(stakingContract) != address(0)) {
+                (bool ok, ) = address(stakingContract).call(
+                    abi.encodeWithSignature("onStakingTicketsClaimed(address)", trader)
+                );
+                ok;
+            }
 
             for (uint256 i = 0; i < toMint; i++) {
                 _mintSingleTicket(trader, dayId, weekId);

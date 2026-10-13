@@ -251,20 +251,28 @@ contract StressAndEcosystemValidationTest is BaseTest {
         assertEq(hook.getMaxWeeklyTicketsLimit(bob), 56, "Half-staker weekly cap must be 8x7 = 56");
         assertEq(hook.getMaxWeeklyTicketsLimit(alice), 70, "Full-staker weekly cap must be 10x7 = 70");
 
-        // 3. Verify Free Staking Tickets Allocation (Epoch 0) with 24h anti-flash-loan cooldown
+        // 3. Verify Hybrid Free Staking Tickets Allocation:
+        //    - Bob claims IMMEDIATELY (< 24h staked) -> receives 5 tickets right away, and his unstake is locked for 24h
+        vm.prank(bob);
+        hook.claimStakingTickets();
+        assertEq(nft.balanceOf(bob), 5, "Half-staker must receive 5 tickets immediately on instant claim");
+        assertFalse(staking.isUnstakeUnlocked(bob), "Bob unstake must be locked for 24h after instant ticket claim");
+
         vm.prank(bob);
         vm.expectRevert("Stake cooldown active (24h)");
-        hook.claimStakingTickets();
+        staking.unstake(1_000_000 ether);
 
+        //    - Alice has NOT claimed instant tickets yet -> her unstake is 100% unlocked!
+        assertTrue(staking.isUnstakeUnlocked(alice), "Alice unstake must be unlocked before claiming instant tickets");
+
+        //    - After 24h of staking, Alice claims her 10 tickets -> she receives 10 tickets AND remains unlocked!
         vm.warp(block.timestamp + 24 hours);
-
-        vm.prank(bob);
-        hook.claimStakingTickets();
-        assertEq(nft.balanceOf(bob), 5, "Half-staker must receive exactly 5 tickets");
+        assertTrue(staking.isUnstakeUnlocked(bob), "Bob 24h lock expires after 24 hours");
 
         vm.prank(alice);
         hook.claimStakingTickets();
-        assertEq(nft.balanceOf(alice), 10, "Full-staker must receive exactly 10 tickets");
+        assertEq(nft.balanceOf(alice), 10, "Full-staker must receive 10 tickets");
+        assertTrue(staking.isUnstakeUnlocked(alice), "Alice remains unlocked because she already staked >= 24h before claiming");
 
         // Calling again within same epoch yields 0 additional tickets
         vm.prank(bob);
@@ -682,5 +690,53 @@ contract StressAndEcosystemValidationTest is BaseTest {
         uint256 aliceScore = hook.userHourlyScore(newHour, alice);
         assertEq(bobScore, 0.05 ether, "Non-staker 0.05 WETH swap must record 0.05 WETH score");
         assertEq(aliceScore, 0.075 ether, "2% staker 0.05 WETH swap must record 0.075 WETH score (+50% boost)");
+    }
+
+    /**
+     * @notice Test 9: P2P NFT Ticket Marketplace with 2% Lottery Tax Routing
+     * - Daily+Weekly ticket sale routes 1% to Daily Jackpot + 1% to Sunday Mega-Jackpot (2% total tax, 98% to seller).
+     * - Weekly-only ticket sale (minted on a prior day of the week) routes 100% of the 2% tax directly to Sunday Mega-Jackpot.
+     */
+    function testMarketplace_2PercentLotteryTaxRouting_DailyAndWeeklyVsWeeklyOnly() public {
+        // Alice swaps 0.25 WETH to mint 2 tickets today (Token #1 and Token #2)
+        _performSwap(alice, 0.25 ether);
+        assertEq(nft.ownerOf(1), alice);
+        assertEq(nft.ownerOf(2), alice);
+
+        // 1. Alice lists Ticket #1 (minted today -> Daily + Weekly eligible) for 1.0 ETH
+        vm.prank(alice);
+        nft.listTicket(1, 1.0 ether);
+
+        uint256 dailyBefore = hook.dailyLotteryPot();
+        uint256 sundayBefore = hook.sundayMegaPot();
+        uint256 aliceEthBefore = alice.balance;
+
+        // Bob buys Ticket #1 for 1.0 ETH
+        vm.prank(bob);
+        nft.buyTicket{value: 1.0 ether}(1);
+
+        assertEq(nft.ownerOf(1), bob, "Bob now owns Ticket #1");
+        assertEq(alice.balance - aliceEthBefore, 0.98 ether, "Seller receives 98% (0.98 ETH)");
+        assertEq(hook.dailyLotteryPot() - dailyBefore, 0.01 ether, "Daily Lottery Pot receives 50% of 2% tax (0.01 ETH)");
+        assertEq(hook.sundayMegaPot() - sundayBefore, 0.01 ether, "Sunday Mega-Jackpot receives 50% of 2% tax (0.01 ETH)");
+
+        // 2. Advance 1 day -> Ticket #2 is now a Weekly-only (Sunday Mega-Jackpot) ticket
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(alice);
+        nft.listTicket(2, 1.0 ether);
+
+        dailyBefore = hook.dailyLotteryPot();
+        sundayBefore = hook.sundayMegaPot();
+        aliceEthBefore = alice.balance;
+
+        // Charlie buys Ticket #2 for 1.0 ETH
+        vm.prank(charlie);
+        nft.buyTicket{value: 1.0 ether}(2);
+
+        assertEq(nft.ownerOf(2), charlie, "Charlie now owns Ticket #2");
+        assertEq(alice.balance - aliceEthBefore, 0.98 ether, "Seller receives 98% (0.98 ETH)");
+        assertEq(hook.dailyLotteryPot() - dailyBefore, 0, "Daily Lottery Pot receives 0 ETH on a past-day weekly ticket");
+        assertEq(hook.sundayMegaPot() - sundayBefore, 0.02 ether, "Sunday Mega-Jackpot receives 100% of 2% tax (0.02 ETH) on weekly ticket");
     }
 }
