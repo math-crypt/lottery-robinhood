@@ -23,9 +23,9 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 contract IRLMarketingVault is IERC721Receiver {
     using StateLibrary for IPoolManager;
 
-    address public owner;
-    IPoolManager public poolManager;
-    IPositionManager public positionManager;
+    address public immutable owner;
+    IPoolManager public immutable poolManager;
+    IPositionManager public immutable positionManager;
     address public irlToken;
 
     event LiquidityDecreased(uint256 indexed tokenId, uint256 amount0, uint256 amount1);

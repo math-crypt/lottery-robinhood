@@ -115,12 +115,11 @@ contract IRLStaking is ReentrancyGuard {
 
         _updateYield(msg.sender);
 
-        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
-        
         stakedBalance[msg.sender] += amount;
         totalStaked += amount;
-
         rewardDebt[msg.sender] = (stakedBalance[msg.sender] * accEthPerShare) / 1e18;
+
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
 
         emit Staked(msg.sender, amount);
     }

@@ -27,21 +27,26 @@ contract DeployLotteryEcosystem is Script {
     // If WETH is token0 and IRL is token1: 1 WETH = 122,500,000 IRL
     uint160 constant SQRT_PRICE_IRL_TOKEN1 = 876895058097984813589920800000000;
 
+    // Contract State to eliminate stack pressure
+    address public weth = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
+    address public poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+    address public openVrfRouter;
+    OpenVRF public openVrfContract;
+
+    InternetRobinLottery public irl;
+    IRLTicketNFT public nft;
+    IRLStaking public staking;
+    IRLMarketingVault public vault;
+    IRLUniswapV4Hook public hook;
+
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
-        
-        // Robinhood Chain Addresses (Chain ID 4663 - Explorer: https://robin.etherscan.io)
-        address weth = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73; 
-        address poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
         
         vm.startBroadcast(deployerPrivateKey);
 
         // 0. Deploy or Resolve Native OpenVRF Router on Robinhood Chain
         address configuredVrf = vm.envOr("OPENVRF_ROUTER", address(0));
-        address openVrfRouter;
-        OpenVRF openVrfContract;
-
         if (configuredVrf != address(0)) {
             console2.log("Using pre-configured OpenVRF Router:", configuredVrf);
             openVrfRouter = configuredVrf;
@@ -57,18 +62,17 @@ contract DeployLotteryEcosystem is Script {
 
         // 1. Deploy Core Contracts
         console2.log("Deploying InternetRobinLottery...");
-        InternetRobinLottery irl = new InternetRobinLottery(deployer, 1_000_000_000 ether);
+        irl = new InternetRobinLottery(deployer, 1_000_000_000 ether);
         
         console2.log("Deploying IRLTicketNFT...");
-        IRLTicketNFT nft = new IRLTicketNFT(deployer);
+        nft = new IRLTicketNFT(deployer);
         
         console2.log("Deploying IRLStaking...");
-        IRLStaking staking = new IRLStaking(address(irl));
+        staking = new IRLStaking(address(irl));
 
         console2.log("Deploying IRLMarketingVault...");
-        // Requires V4 periphery PositionManager. Assuming standard V4 PM address or pass it later.
         address positionManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
-        IRLMarketingVault vault = new IRLMarketingVault(poolManager, positionManager, address(irl));
+        vault = new IRLMarketingVault(poolManager, positionManager, address(irl));
 
         // 2. Mine Hook Address
         uint160 flags = uint160(
@@ -86,7 +90,6 @@ contract DeployLotteryEcosystem is Script {
             weth
         );
 
-        // CREATE2 Factory (standard forge testnet factory)
         address CREATE2_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
         
         console2.log("Mining Hook Address...");
@@ -98,7 +101,7 @@ contract DeployLotteryEcosystem is Script {
         );
 
         console2.log("Deploying IRLUniswapV4Hook...");
-        IRLUniswapV4Hook hook = new IRLUniswapV4Hook{salt: salt}(
+        hook = new IRLUniswapV4Hook{salt: salt}(
             IPoolManager(poolManager), 
             address(nft), 
             address(staking), 
@@ -142,6 +145,11 @@ contract DeployLotteryEcosystem is Script {
 
         console2.log("Initializing Pool Manager with Market Cap ~20k$...");
         IPoolManager(poolManager).initialize(poolKey, startingPrice);
+
+        // 4. Configure 50k Market Cap Auto-Disable for Anti-Whale & Limits
+        bool isIrl0 = (address(irl) < weth);
+        hook.setDisableAntiWhaleFromInitialPrice(startingPrice, isIrl0);
+        console2.log("Configured 50k Market Cap Auto-Disable threshold:", hook.disableAntiWhaleSqrtPrice());
 
         vm.stopBroadcast();
         

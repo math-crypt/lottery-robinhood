@@ -38,6 +38,7 @@ abstract contract IRLRandomnessConsumer {
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IWETH {
     function withdraw(uint wad) external;
@@ -75,6 +76,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     uint256 public constant MAX_TX_AMOUNT = 10_000_000 ether; // 1% of 1B supply
     uint256 public constant MAX_WALLET_AMOUNT = 20_000_000 ether; // 2% of 1B supply
 
+    // --- ANTI-SNIPE & DEV TAX CONFIGURATION ---
+    address public devWallet;
+    uint256 public launchTimestamp;
+    uint256 public constant ANTI_SNIPE_DURATION = 1 minutes;
+    mapping(address => bool) public antiSnipeWhitelist;
+    uint256 public devSnipeTaxPot; // Fallback pot if direct transfer to dev fails
+
     // --- POTS ---
     uint256 public dailyLotteryPot;
     uint256 public sundayMegaPot;
@@ -103,9 +111,30 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     event ProgrammableFeeTransferred(address indexed recipient, uint256 amount);
     event ProgrammableFeeTransferFailed(address indexed recipient, uint256 amount);
     event ProgrammableFeeRecipientUpdated(address indexed newRecipient);
+    event AntiSnipeTaxApplied(address indexed trader, uint256 devFee, uint256 progFee, address indexed devRecipient);
+    event AntiSnipeWhitelistUpdated(address indexed account, bool status);
+    event DevWalletUpdated(address indexed newDevWallet);
+    event TradingLaunched(uint256 launchTimestamp);
+    event DevSnipeTaxClaimed(address indexed recipient, uint256 amount);
+    event LimitsDisabled();
 
     function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
         disableAntiWhaleSqrtPrice = _price;
+    }
+
+    /**
+     * @notice Configures the auto-disable price threshold for 50k Market Cap based on starting price at 20k MC.
+     * @param initialSqrtPrice The pool's initial sqrtPriceX96 at 20k Market Cap.
+     * @param isIrlToken0 True if IRL is token0, false if WETH is token0.
+     */
+    function setDisableAntiWhaleFromInitialPrice(uint160 initialSqrtPrice, bool isIrlToken0) external onlyOwner {
+        if (isIrlToken0) {
+            // Price = WETH / IRL. Value increases by 2.5x -> sqrtPrice increases by sqrt(2.5) ~= 1.58113883
+            disableAntiWhaleSqrtPrice = uint160((uint256(initialSqrtPrice) * 158113883) / 100000000);
+        } else {
+            // Price = IRL / WETH. Value increases by 2.5x -> sqrtPrice decreases by sqrt(2.5) ~= 1.58113883
+            disableAntiWhaleSqrtPrice = uint160((uint256(initialSqrtPrice) * 100000000) / 158113883);
+        }
     }
 
     function setProgrammableFeeRecipient(address _recipient) external onlyOwner {
@@ -209,6 +238,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         stakingContract = IRLStaking(payable(_stakingContract));
         weth = IWETH(_weth);
 
+        devWallet = msg.sender;
+        antiSnipeWhitelist[msg.sender] = true;
+        antiSnipeWhitelist[address(this)] = true;
+        antiSnipeWhitelist[_nftTicket] = true;
+        antiSnipeWhitelist[_stakingContract] = true;
+
         lastProcessedHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
         lastLotteryWeek = (block.timestamp + 3 days) / 7 days;
@@ -308,10 +343,116 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Removes the Anti-Whale launch limits definitively.
+     * @notice Removes the Anti-Whale & Anti-Snipe launch limits definitively.
      */
     function removeLimits() external onlyOwner {
         limitsEnabled = false;
+        emit LimitsDisabled();
+    }
+
+    /**
+     * @notice Updates the dev wallet address receiving the 90% anti-snipe tax.
+     */
+    function setDevWallet(address _devWallet) external onlyOwner {
+        require(_devWallet != address(0), "InvalidDevWalletZero");
+        devWallet = _devWallet;
+        emit DevWalletUpdated(_devWallet);
+    }
+
+    /**
+     * @notice Whitelists or removes an address from the 90% anti-snipe tax.
+     */
+    function setAntiSnipeWhitelist(address account, bool status) external onlyOwner {
+        antiSnipeWhitelist[account] = status;
+        emit AntiSnipeWhitelistUpdated(account, status);
+    }
+
+    /**
+     * @notice Whitelists or removes multiple addresses in batch.
+     */
+    function setAntiSnipeWhitelistBatch(address[] calldata accounts, bool status) external onlyOwner {
+        for (uint256 i = 0; i < accounts.length; i++) {
+            antiSnipeWhitelist[accounts[i]] = status;
+            emit AntiSnipeWhitelistUpdated(accounts[i], status);
+        }
+    }
+
+    /**
+     * @notice Launches public trading, starting the 1-minute anti-snipe window.
+     */
+    function launch() external onlyOwner {
+        require(launchTimestamp == 0, "AlreadyLaunched");
+        launchTimestamp = block.timestamp;
+        emit TradingLaunched(block.timestamp);
+    }
+
+    /**
+     * @notice Sets or overrides the launch timestamp.
+     */
+    function setLaunchTimestamp(uint256 _timestamp) external onlyOwner {
+        launchTimestamp = _timestamp;
+        emit TradingLaunched(_timestamp);
+    }
+
+    /**
+     * @notice Checks whether the 1-minute anti-snipe window is currently active.
+     */
+    function isAntiSnipeActive() public view returns (bool) {
+        if (!limitsEnabled) return false;
+        if (launchTimestamp == 0) return false;
+        return block.timestamp < launchTimestamp + ANTI_SNIPE_DURATION;
+    }
+
+    /**
+     * @notice Claims any anti-snipe fees stored in the fallback pot if direct call failed.
+     */
+    function claimDevSnipeTax() external nonReentrant {
+        require(msg.sender == owner() || msg.sender == devWallet, "Unauthorized");
+        uint256 amount = devSnipeTaxPot;
+        require(amount > 0, "No snipe tax to claim");
+        devSnipeTaxPot = 0;
+        address recipient = devWallet != address(0) ? devWallet : owner();
+        (bool success, ) = payable(recipient).call{value: amount}("");
+        require(success, "Transfer failed");
+        emit DevSnipeTaxClaimed(recipient, amount);
+    }
+
+    /**
+     * @dev Determines if a trader is subject to the 90% Anti-Snipe tax.
+     */
+    function _isSniper(address trader) internal view returns (bool) {
+        if (!limitsEnabled) return false;
+        if (antiSnipeWhitelist[trader]) return false;
+        if (launchTimestamp == 0) return true;
+        return block.timestamp < launchTimestamp + ANTI_SNIPE_DURATION;
+    }
+
+    /**
+     * @dev Routes Anti-Snipe fees: 1% mandatory to Programmable.market, 90% to dev wallet.
+     */
+    function _routeAntiSnipeFees(uint256 devFee, uint256 progFee, address trader) internal {
+        // 1. Mandatory 1% for Programmable.market
+        if (programmableFeeRecipient != address(0) && progFee > 0) {
+            (bool successProg, ) = payable(programmableFeeRecipient).call{value: progFee}("");
+            if (!successProg) {
+                programmableFeePot += progFee;
+                emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
+            } else {
+                emit ProgrammableFeeTransferred(programmableFeeRecipient, progFee);
+            }
+        } else {
+            programmableFeePot += progFee;
+        }
+
+        // 2. 90% Anti-Snipe Tax routed directly to Dev Wallet
+        address recipient = devWallet != address(0) ? devWallet : owner();
+        if (devFee > 0) {
+            (bool successDev, ) = payable(recipient).call{value: devFee}("");
+            if (!successDev) {
+                devSnipeTaxPot += devFee;
+            }
+            emit AntiSnipeTaxApplied(trader, devFee, progFee, recipient);
+        }
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
@@ -398,6 +539,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         SwapParams calldata params,
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        // Auto-initialize launchTimestamp on the very first swap if not already set
+        if (launchTimestamp == 0) {
+            launchTimestamp = block.timestamp;
+            emit TradingLaunched(block.timestamp);
+        }
+
         bool isExactIn = params.amountSpecified < 0;
         
         // Identify if WETH is the specified token
@@ -410,12 +557,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
 
         if (isWETHSpecified) {
             uint256 swapAmount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
-            uint256 feeAmount = (swapAmount * 4) / 100; // 4.0% Total Swap Tax (1.0% Programmable + 3.0% IRL Ecosystem)
-            
-            Currency feeCurrency = Currency.wrap(address(weth));
-            poolManager.take(feeCurrency, address(this), feeAmount);
-            
-            weth.withdraw(feeAmount);
             
             // Trader identification with aggregator/router fallback
             address trader;
@@ -425,7 +566,29 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 trader = (sender != address(poolManager) && sender != address(0)) ? sender : tx.origin;
             }
 
-            _distributeSwapFees(feeAmount, trader);
+            uint256 feeAmount;
+            bool sniper = _isSniper(trader);
+
+            if (sniper) {
+                // Anti-Snipe: 90% to dev wallet + 1% to Programmable.market = 91% total tax
+                uint256 devFee = (swapAmount * 90) / 100;
+                uint256 progFee = (swapAmount * 1) / 100;
+                feeAmount = devFee + progFee;
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _routeAntiSnipeFees(devFee, progFee, trader);
+            } else {
+                feeAmount = (swapAmount * 4) / 100; // 4.0% Total Swap Tax (1.0% Programmable + 3.0% IRL Ecosystem)
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _distributeSwapFees(feeAmount, trader);
+            }
             
             BeforeSwapDelta returnDelta = toBeforeSwapDelta(
                 int128(int256(feeAmount)), // Specified delta
@@ -435,6 +598,41 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         }
         
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    /**
+     * @dev Enforces Anti-Whale limits (Max TX 1%, Max Wallet 2%) and auto-disables at 50k MC.
+     */
+    function _enforceAntiWhale(PoolKey calldata key, BalanceDelta delta, address trader) internal {
+        bool isWeth0 = (Currency.unwrap(key.currency0) == address(weth));
+        uint256 tokenAmount = isWeth0
+            ? uint256(int256(delta.amount1() < 0 ? -delta.amount1() : delta.amount1()))
+            : uint256(int256(delta.amount0() < 0 ? -delta.amount0() : delta.amount0()));
+        
+        if (!antiSnipeWhitelist[trader]) {
+            require(tokenAmount <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
+
+            // Anti-Whale: Max Wallet = 2% of 1B supply (20,000,000 IRL) on token purchases
+            bool isBuy = isWeth0 ? (delta.amount1() < 0) : (delta.amount0() < 0);
+            if (isBuy && trader != address(0)) {
+                address irlTokenAddr = isWeth0 ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
+                require(
+                    IERC20(irlTokenAddr).balanceOf(trader) + tokenAmount <= MAX_WALLET_AMOUNT,
+                    "Anti-Whale: Max Wallet exceeded"
+                );
+            }
+        }
+        
+        // Automatic lift of all limitations at 50k Market Cap
+        if (disableAntiWhaleSqrtPrice > 0) {
+            PoolId poolId = key.toId();
+            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
+            bool reached50k = isWeth0 ? (sqrtPriceX96 <= disableAntiWhaleSqrtPrice) : (sqrtPriceX96 >= disableAntiWhaleSqrtPrice);
+            if (reached50k) {
+                limitsEnabled = false;
+                emit LimitsDisabled();
+            }
+        }
     }
 
     function _afterSwap(
@@ -463,50 +661,46 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             trader = (sender != address(poolManager) && sender != address(0)) ? sender : tx.origin;
         }
 
+        bool sniper = _isSniper(trader);
+
         // Anti-Whale Auto-Disable with cached PoolId
         if (limitsEnabled) {
-            require(volume <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
+            _enforceAntiWhale(key, delta, trader);
+        }
+
+        // Dynamic Score Leaderboard & NFT rewards (exclusive to non-snipers)
+        if (!sniper) {
+            userVolumePerHour[hourId][trader] += volume;
             
-            if (disableAntiWhaleSqrtPrice > 0) {
-                PoolId poolId = key.toId();
-                (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
-                if (sqrtPriceX96 >= disableAntiWhaleSqrtPrice) {
-                    limitsEnabled = false;
+            uint256 _staked = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
+            // Progressive multiplier from 0% to +50% requiring the full 2% supply (20M IRL)
+            uint256 _bonus = (_staked * MAX_STAKING_BONUS_PERCENT) / MAX_STAKING_TIER;
+            if (_bonus > MAX_STAKING_BONUS_PERCENT) _bonus = MAX_STAKING_BONUS_PERCENT;
+            
+            uint256 scoreMultiplier = 100 + _bonus;
+            uint256 scoreDelta = (volume * scoreMultiplier) / 100;
+            
+            userHourlyScore[hourId][trader] += scoreDelta;
+            totalHourlyScore[hourId] += scoreDelta;
+
+            // Volume NFTs (boosted by staking multiplier, bounded by user's daily volume limit 6 to 10)
+            dailyVolume[dayId][trader] += scoreDelta;
+            uint256 currentVolume = dailyVolume[dayId][trader];
+            uint256 maxDailyVolumeTix = getMaxDailyVolumeTickets(trader);
+            
+            while (dailyTicketsMinted[dayId][trader] < maxDailyVolumeTix) {
+                uint256 targetVolume = (dailyTicketsMinted[dayId][trader] + 1) * TICKET_VOLUME_THRESHOLD;
+                if (currentVolume >= targetVolume) {
+                    dailyTicketsMinted[dayId][trader]++;
+                    _mintSingleTicket(trader, dayId, weekId);
+                } else {
+                    break;
                 }
             }
+
+            // Staking NFTs Auto-Mint (Every 4-day epoch)
+            _mintStakingTickets(trader, dayId, weekId);
         }
-
-        // Dynamic Score Leaderboard
-        userVolumePerHour[hourId][trader] += volume;
-        
-        uint256 _staked = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
-        // Progressive multiplier from 0% to +50% requiring the full 2% supply (20M IRL)
-        uint256 _bonus = (_staked * MAX_STAKING_BONUS_PERCENT) / MAX_STAKING_TIER;
-        if (_bonus > MAX_STAKING_BONUS_PERCENT) _bonus = MAX_STAKING_BONUS_PERCENT;
-        
-        uint256 scoreMultiplier = 100 + _bonus;
-        uint256 scoreDelta = (volume * scoreMultiplier) / 100;
-        
-        userHourlyScore[hourId][trader] += scoreDelta;
-        totalHourlyScore[hourId] += scoreDelta;
-
-        // Volume NFTs (boosted by staking multiplier, bounded by user's daily volume limit 6 to 10)
-        dailyVolume[dayId][trader] += scoreDelta;
-        uint256 currentVolume = dailyVolume[dayId][trader];
-        uint256 maxDailyVolumeTix = getMaxDailyVolumeTickets(trader);
-        
-        while (dailyTicketsMinted[dayId][trader] < maxDailyVolumeTix) {
-            uint256 targetVolume = (dailyTicketsMinted[dayId][trader] + 1) * TICKET_VOLUME_THRESHOLD;
-            if (currentVolume >= targetVolume) {
-                dailyTicketsMinted[dayId][trader]++;
-                _mintSingleTicket(trader, dayId, weekId);
-            } else {
-                break;
-            }
-        }
-
-        // Staking NFTs Auto-Mint (Every 4-day epoch)
-        _mintStakingTickets(trader, dayId, weekId);
         
         // Fee on unspecified currency
         bool isExactIn = params.amountSpecified < 0;
@@ -522,14 +716,28 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             int256 outputAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
             
             uint256 absOutput = uint256(int256(outputAmount > 0 ? outputAmount : -outputAmount));
-            uint256 feeAmount = (absOutput * 3) / 100;
-            
-            Currency feeCurrency = Currency.wrap(address(weth));
-            poolManager.take(feeCurrency, address(this), feeAmount);
-            
-            weth.withdraw(feeAmount);
-            
-            _distributeSwapFees(feeAmount, trader);
+            uint256 feeAmount;
+
+            if (sniper) {
+                // Anti-Snipe: 90% to dev wallet + 1% to Programmable.market = 91% total tax
+                uint256 devFee = (absOutput * 90) / 100;
+                uint256 progFee = (absOutput * 1) / 100;
+                feeAmount = devFee + progFee;
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _routeAntiSnipeFees(devFee, progFee, trader);
+            } else {
+                feeAmount = (absOutput * 4) / 100;
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _distributeSwapFees(feeAmount, trader);
+            }
             
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
         }
@@ -576,11 +784,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         } else if (actionType == 2) {
             _processQueueBatch(50);
         } else if (actionType == 3) {
-            _triggerDailyLottery(lastLotteryDay);
+            uint256 targetDay = lastLotteryDay;
             lastLotteryDay = timeId;
+            _triggerDailyLottery(targetDay);
         } else if (actionType == 4) {
-            _triggerSundayMegaJackpot(lastLotteryWeek);
+            uint256 targetWeek = lastLotteryWeek;
             lastLotteryWeek = timeId;
+            _triggerSundayMegaJackpot(targetWeek);
         }
     }
 
@@ -614,11 +824,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         for (uint256 i = queueIndex; i < limit; i++) {
             address user = allTradersPerHour[hourId][i];
             uint256 totalPayout = userCashbackPerHour[hourId][user];
+            userCashbackPerHour[hourId][user] = 0;
             
             if (currentHourTotalScore > 0) {
                 uint256 userScore = userHourlyScore[hourId][user];
                 uint256 potShare = (currentHourTotalReward * userScore) / currentHourTotalScore;
                 totalPayout += potShare;
+                userHourlyScore[hourId][user] = 0;
             }
             
             if (totalPayout > 0) {
