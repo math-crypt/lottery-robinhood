@@ -141,10 +141,10 @@ There is a constant *4.0% tax* on every swap (buys and sells), collected nativel
 
 ⚙️ *1.0% Protocol & Deflation*:
   • 90% for OpenVRF gas, automated keep-alives, and marketing.
-  • 10% dedicated to permanent **Buyback & Burn** (automated WETH -> $IRL V4 swap to 0xdead)!
+  • 10% dedicated to **Hourly Batched Buyback & Burn** (accumulated in \`buybackPot\` and swapped WETH -> $IRL to \`0xdead\` once per hour so the chart is never spammed with micro-buys on every trade)!
 
 🔥 *Double Deflation Flywheel*:
-Total *0.60% of every swap volume is permanently burned* (0.50% auto-burned by Programmable + 0.10% protocol buyback & burn to 0xdead)!
+Total *0.60% of trading volume is permanently burned* (0.50% auto-burned on every swap by Programmable + 0.10% protocol buyback & burn executed once every hour to \`0xdead\`)!
 
 *Zero Chart Sell Pressure*: Taxes are intercepted natively in ETH by the V4 Hook, so the $IRL chart never dumps to fund rewards!`;
     ctx.reply(text, { parse_mode: 'Markdown' });

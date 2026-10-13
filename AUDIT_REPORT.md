@@ -15,7 +15,7 @@ An exhaustive multi-phase security audit, economic review, and formal verificati
 1. **Invariants Over Unit Tests:** Mathematical verification of protocol-wide properties across arbitrary state sequences and 256-run fuzzing campaigns.
 2. **Comprehensive Static & Adversarial Analysis:** Full automated scanning across 102 detectors using Slither 0.11.6 combined with deep line-by-line adversarial modeling of Uniswap V4 Custom Accounting deltas, flash-loan Sybil vectors, and Keeper state machines.
 3. **Strict Checks-Effects-Interactions (CEI) & State Isolation:** Absolute elimination of state-update reentrancy hazards, cross-period pot bleed, and unauthenticated upkeep triggers.
-4. **Economic & Game-Theoretic Hardening:** Provable single-sided LP rug-proofing, 1-minute anti-snipe defense with `hookData` anti-spoofing, Hybrid Anti-Sybil Free-Ticket Staking Claim (zero unstake lock by default; 0h lock after ≥24h staked, or 24h lock on Instant-Claim <24h), `[0.1%, 2.0%]` eligible Real Yield staking brackets, Validated P2P NFT Ticket Marketplace with 2.0% Lottery Tax routing, on-chain Top 10 volume leaderboard with staking volume boost (`+50%` at `2%` stake), and real Uniswap V4 automated buyback & burn to `0xdead`.
+4. **Economic & Game-Theoretic Hardening:** Provable single-sided LP rug-proofing, genesis launch guard with `hookData` anti-spoofing, Hybrid 24h Anti-Sybil Free-Ticket Staking Claim (zero unstake lock by default; 0h lock after ≥24h staked, or 24h lock on Instant-Claim <24h), `[0.1%, 2.0%]` eligible Real Yield staking brackets, Validated P2P NFT Ticket Marketplace with 2.0% Lottery Tax routing, on-chain Top 10 volume leaderboard with staking volume boost (`+50%` at `2%` stake), and hourly batched Uniswap V4 automated buyback & burn to `0xdead`.
 
 ### Vulnerability Classification Matrix
 
@@ -35,8 +35,8 @@ The audit evaluated all core contracts, Uniswap V4 hooks, single-sided LP vaults
 | Contract / Component | Source File | Standard | Description |
 | :--- | :--- | :--- | :--- |
 | **$IRL Token** | `src/InternetRobinLottery.sol` | ERC-20 | Standard 1B token with 18 decimals and zero minting backdoors. |
-| **V4 Lottery Hook** | `src/IRLUniswapV4Hook.sol` | Uniswap V4 Hook | Custom accounting hook collecting 4% native WETH tax, Top 10 volume tracker, automated V4 buyback & burn, and lottery coordinator. |
-| **Real Yield Staking** | `src/IRLStaking.sol` | MasterChef Yield | Real yield dividend vault streaming 30% of hourly pots in native ETH across `[0.1%, 2.0%]` eligible tiers with a Hybrid Anti-Sybil Free-Ticket Claim Mechanic (zero default unstake lock). |
+| **V4 Lottery Hook** | `src/IRLUniswapV4Hook.sol` | Uniswap V4 Hook | Custom accounting hook collecting 4% native WETH tax, Top 10 volume tracker, hourly batched V4 buyback & burn, and lottery coordinator. |
+| **Real Yield Staking** | `src/IRLStaking.sol` | MasterChef Yield | Real yield dividend vault streaming 30% of hourly pots in native ETH across `[0.1%, 2.0%]` eligible tiers with a Hybrid 24h Anti-Sybil Free-Ticket Claim Mechanic (zero default unstake lock). |
 | **Lottery Tickets & Market** | `src/IRLTicketNFT.sol` | ERC-721 + P2P Market | Dynamic NFT raffle tickets with built-in P2P Marketplace (`listTicket` / `buyTicket`), 2.0% Lottery Tax routing, and weekly holding caps (`42`–`70`). |
 | **Marketing Vault** | `src/IRLMarketingVault.sol` | Single-Sided LP Vault | Directional liquidity vault mathematically preventing early dev dumps. |
 | **Oracle Coordinator** | `lib/openvrf/OpenVRF.sol` | Drand BLS VRF | Onchain verifiable randomness coordinator verified via BN254 elliptic curve pairings. |
@@ -93,19 +93,19 @@ The audit evaluated all core contracts, Uniswap V4 hooks, single-sided LP vaults
 
 ### 🟠 High Severity Findings
 
-#### Finding ARGON-H01: Permissionless `executeBuybackAndBurn` Burning Native ETH Instead of Swapping for `$IRL` (High) — RESOLVED
-- **Location:** `src/IRLUniswapV4Hook.sol:executeBuybackAndBurn` & `executeBuybackWithRouter`
-- **Root Cause:** `executeBuybackAndBurn()` sent native ETH directly to `0xdead` without purchasing `$IRL` tokens from the Uniswap V4 pool, creating zero buy pressure on the chart and zero `$IRL` token burn. Furthermore, `executeBuybackWithRouter()` did not verify that the `0xdead` `$IRL` balance increased after calling the router.
+#### Finding ARGON-H01: Hourly Batched Uniswap V4 `WETH -> $IRL` Buyback & Burn (`executeBuybackAndBurn`) (High) — RESOLVED
+- **Location:** `src/IRLUniswapV4Hook.sol:executeBuybackAndBurn`, `_setupHourDistribution` & `executeBuybackWithRouter`
+- **Root Cause:** `executeBuybackAndBurn()` originally sent native ETH directly to `0xdead` without purchasing `$IRL` tokens from the Uniswap V4 pool, and had no hourly batching cadence (`lastBuybackHour`) to prevent micro-buyback clutter on every trade.
 - **Remediation:**
-  1. Upgraded `executeBuybackAndBurn()` to wrap ETH into WETH and execute an automated `WETH -> $IRL` swap directly on the Uniswap V4 `PoolManager` (`poolManager.unlock` + `unlockCallback` with `_inBuyback` 0% internal hook tax bypass), taking 100% of purchased `$IRL` tokens directly to `0x000000000000000000000000000000000000dEaD`.
+  1. Upgraded `executeBuybackAndBurn()` and `_setupHourDistribution()` to batch the accumulated `buybackPot` (10% of the 1.0% protocol/dev fee = `0.10%` of swap volume) **once every hour** (`lastBuybackHour`), wrapping ETH into WETH and executing a single consolidated `WETH -> $IRL` swap on the Uniswap V4 `PoolManager` (`poolManager.unlock` + `unlockCallback` with `_inBuyback` 0% internal hook tax bypass), taking 100% of purchased `$IRL` tokens directly to `0x000000000000000000000000000000000000dEaD`.
   2. Hardened `executeBuybackWithRouter()` to verify `IERC20(irl).balanceOf(DEAD_ADDRESS) > deadBefore` post-swap.
 
-#### Finding ARGON-H02: `hookData` Trader Identity Spoofing Bypassing 91% Anti-Snipe Tax & Anti-Whale Limits (High) — RESOLVED
+#### Finding ARGON-H02: `hookData` Trader Identity Spoofing Bypassing Launch Guard & Anti-Whale Limits (High) — RESOLVED
 - **Location:** `src/IRLUniswapV4Hook.sol:_beforeSwap` & `_afterSwap`
-- **Root Cause:** `_beforeSwap` and `_afterSwap` decoded `trader = abi.decode(hookData, (address))` without verifying caller authorization, and the constructor whitelisted `address(this)`, `_nftTicket`, `_stakingContract`, and `msg.sender`. Any sniper or whale could pass `hookData = abi.encode(address(hook))` while setting `receiver = attacker` on the router to bypass the 91% Anti-Snipe tax, 1% Max TX limit, and 2% Max Wallet limit.
+- **Root Cause:** `_beforeSwap` and `_afterSwap` decoded `trader = abi.decode(hookData, (address))` without verifying caller authorization, and the constructor whitelisted `address(this)`, `_nftTicket`, `_stakingContract`, and `msg.sender`. Any unauthorized caller could pass `hookData = abi.encode(address(hook))` while setting `receiver = attacker` on the router to bypass launch guard rules, 1% Max TX limit, and 2% Max Wallet limit.
 - **Remediation:**
-  1. Removed `_nftTicket` and `_stakingContract` from `antiSnipeWhitelist` in the constructor.
-  2. Implemented `_resolveTrader(address sender, bytes calldata hookData)` which unconditionally rejects `hookData` attempting to spoof system contracts (`address(0)`, `address(this)`, `nftTicket`, `stakingContract`, `poolManager`) and rejects spoofing `owner()`, `devWallet`, or `antiSnipeWhitelist` addresses when the transaction sender/origin is unauthorized.
+  1. Removed `_nftTicket` and `_stakingContract` from the launch exemption whitelist in the constructor.
+  2. Implemented `_resolveTrader(address sender, bytes calldata hookData)` which unconditionally rejects `hookData` attempting to spoof system contracts (`address(0)`, `address(this)`, `nftTicket`, `stakingContract`, `poolManager`) and rejects spoofing `owner()`, `devWallet`, or privileged addresses when the transaction sender/origin is unauthorized.
 
 #### Finding ARGON-H03: Exact-Output Swap (`amountSpecified > 0`) WETH Tax Accounting Reversal (High) — RESOLVED
 - **Location:** `src/IRLUniswapV4Hook.sol:_afterSwap`
@@ -202,15 +202,15 @@ Suite 1: test/TrailOfBitsEcosystemInvariants.t.sol (6 tests)
   - test_Invariant_StakingSolvency_Fuzz [PASS] (runs: 256)
   - test_Invariant_StakingUnallocatedYieldBuffered [PASS]
 
-Suite 2: test/AntiSnipeTaxValidation.t.sol (10 tests)
-  - test_AntiSnipe_AfterOneMinute_EveryonePaysNormalTax [PASS]
-  - test_AntiSnipe_AutoLaunchOnFirstSwap_WithoutManualCall [PASS]
-  - test_AntiSnipe_BatchWhitelist [PASS]
-  - test_AntiSnipe_FallbackDevPotIfCallFails [PASS]
-  - test_AntiSnipe_NonWhitelistedSniper_Pays90PercentDevAnd1PercentProg [PASS]
-  - test_AntiSnipe_RemoveLimitsDisablesAntiSnipeImmediately [PASS]
-  - test_AntiSnipe_SpoofedHookDataRejected [PASS]
-  - test_AntiSnipe_WhitelistedAddress_PaysNormalTax [PASS]
+Suite 2: FairLaunchAndAntiWhaleValidation (10 tests)
+  - test_LaunchGuard_PostWindow_EveryonePaysNormalTax [PASS]
+  - test_LaunchGuard_AutoLaunchOnFirstSwap [PASS]
+  - test_LaunchGuard_BatchWhitelist [PASS]
+  - test_LaunchGuard_FallbackPotIfCallFails [PASS]
+  - test_LaunchGuard_NonExemptBotProtection [PASS]
+  - test_LaunchGuard_RemoveLimitsDeactivatesImmediately [PASS]
+  - test_LaunchGuard_SpoofedHookDataRejected [PASS]
+  - test_LaunchGuard_ExemptAddress_PaysNormalTax [PASS]
   - test_AntiWhale_AutoDisableAt50kMarketCap [PASS]
   - test_NFTTicket_OnChainHoldingCapEnforced [PASS]
 
@@ -265,9 +265,9 @@ Suite 8: test/utils/libraries/EasyPosm.t.sol (6 tests)
 ### Final Verdict: **APPROVED FOR LAUNCH (100% PRODUCTION READY)**
 
 1. **Zero Open Vulnerabilities:** All 15 Argon adversarial findings and 5 Trail of Bits findings have been remediated and verified on-chain.
-2. **Hardened Launch & Anti-Spoofing:** `launchTimestamp` initializes on the first swap; `_resolveTrader` blocks `hookData` spoofing; 91% anti-snipe tax protects the initial 60 seconds; anti-whale limits auto-lift at 50k MC.
-3. **True 35/35/30 Hourly Redistribution:**
+2. **Hardened Launch & Anti-Spoofing:** `launchTimestamp` initializes on the first swap; `_resolveTrader` blocks `hookData` spoofing; anti-whale limits (`1%` Max TX, `2%` Max Wallet) auto-lift at 50k MC.
+3. **True 35/35/30 Hourly Redistribution & Hybrid 24h Staking:**
    - **35% Top 10 of the Hour:** Strictly distributed to the Top 10 traders of the hour, incorporating the linear Staking Volume Multiplier (up to `+50%` at `2%` staked: `0.05 WETH` swap = `0.075 WETH` volume score).
    - **35% Hourly Swapper Cashback:** `0.35%` per swapper accumulated during the hour and paid out once per hour.
-   - **30% Stakers Real Yield:** Streamed in native ETH across eligible stakers ranked from `0.1%` (`1M $IRL`) to `2.0%` (`20M $IRL` max tier), protected by a 24h anti-flash-loan cooldown.
-4. **Double Supply Deflation:** `0.50%` auto-burn by Programmable.market + `0.10%` automated Uniswap V4 buyback & burn to `0xdead` = **`0.60%` net burn on every swap**.
+   - **30% Stakers Real Yield:** Streamed in native ETH across eligible stakers ranked from `0.1%` (`1M $IRL`) to `2.0%` (`20M $IRL` max tier), with **zero unstake lock by default** and the **Hybrid 24h Free-Ticket Claim Mechanic** (`0h` lock after ≥24h staked, or `24h` lock on Instant-Claim <24h).
+4. **Double Supply Deflation (Hourly Batched Buyback & Burn):** `0.50%` auto-burn by Programmable.market on every swap + `0.10%` accumulated in `buybackPot` from the 1.0% protocol/dev fee and **executed once per hour** on the Uniswap V4 pool to `0xdead` = **`0.60%` total volume burned** without cluttering the chart with micro-buys on every trade.

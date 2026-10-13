@@ -95,7 +95,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     uint256 public sundayMegaPot;
     uint256 public hourlyRewardPot;
     uint256 public protocolPot; // For VRF/Automation fees and Marketing
-    uint256 public buybackPot; // 10% of protocol fees reserved for buyback & burn
+    uint256 public buybackPot; // 10% of protocol fees reserved for hourly buyback & burn
+    uint256 public lastBuybackHour; // Enforces 1-hour batching for protocol buyback & burn
     mapping(uint256 => uint256) public hourlyPotByHour;
     mapping(uint256 => uint256) public vrfRequestPrize;
 
@@ -268,6 +269,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         antiSnipeWhitelist[address(this)] = true;
 
         lastProcessedHour = block.timestamp / 1 hours;
+        lastBuybackHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
         lastLotteryWeek = (block.timestamp + 3 days) / 7 days;
 
@@ -331,12 +333,21 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     /**
      * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved 10% protocol fees
      * and permanently burns the purchased $IRL tokens to 0xdead.
+     * Batched once per hour so the price chart is never spammed with micro-buybacks on every trade.
      */
     function executeBuybackAndBurn() external nonReentrant {
-        uint256 amount = buybackPot;
-        require(amount > 0, "No buyback pot to execute");
+        uint256 currentHour = block.timestamp / 1 hours;
+        require(currentHour > lastBuybackHour || msg.sender == owner(), "Hourly buyback cooldown active");
+        require(buybackPot > 0, "No buyback pot to execute");
         require(Currency.unwrap(activePoolKey.currency0) != address(0), "Pool not active");
+        _executeBuybackAndBurnInternal();
+    }
+
+    function _executeBuybackAndBurnInternal() internal {
+        uint256 amount = buybackPot;
+        if (amount == 0 || Currency.unwrap(activePoolKey.currency0) == address(0)) return;
         buybackPot = 0;
+        lastBuybackHour = block.timestamp / 1 hours;
 
         _inBuyback = true;
         weth.deposit{value: amount}();
@@ -532,7 +543,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Launches public trading, starting the 1-minute anti-snipe window.
+     * @notice Launches public trading and initializes the launch guard window.
      */
     function launch() external onlyOwner {
         require(launchTimestamp == 0, "AlreadyLaunched");
@@ -549,7 +560,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Checks whether the 1-minute anti-snipe window is currently active.
+     * @notice Checks whether the initial launch guard window is currently active.
      */
     function isAntiSnipeActive() public view returns (bool) {
         if (!limitsEnabled) return false;
@@ -1065,6 +1076,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             currentHourTotalReward = 0;
             currentHourTotalScore = 0;
             protocolPot += totalReward;
+        }
+
+        // Process the 10% protocol/dev fee buyback & burn once per hour in a single consolidated
+        // transaction so the price chart is never spammed with micro-buybacks on every swap.
+        if (
+            buybackPot > 0 &&
+            Currency.unwrap(activePoolKey.currency0) != address(0) &&
+            (block.timestamp / 1 hours) > lastBuybackHour
+        ) {
+            _executeBuybackAndBurnInternal();
         }
         
         emit HourlyRewardsDistributed(hourId, totalReward);
