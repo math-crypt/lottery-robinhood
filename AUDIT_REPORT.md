@@ -5,7 +5,7 @@
 **Methodology:** Trail of Bits Security Standards, Argon Deep Adversarial Audit, Slither Static Analysis (102 Detectors), Property-Based Invariant Verification, Formal Mathematical Proofs  
 **Status:** **APPROVED FOR MAINNET PRODUCTION LAUNCH**  
 **Audit Date:** October 2026  
-**Test Pass Rate:** 47 / 47 Tests Passed (100% Pass Rate across 8 Suites)
+**Test Pass Rate:** 48 / 48 Tests Passed (100% Pass Rate across 8 Suites)
 
 ---
 
@@ -15,7 +15,7 @@ An exhaustive multi-phase security audit, economic review, and formal verificati
 1. **Invariants Over Unit Tests:** Mathematical verification of protocol-wide properties across arbitrary state sequences and 256-run fuzzing campaigns.
 2. **Comprehensive Static & Adversarial Analysis:** Full automated scanning across 102 detectors using Slither 0.11.6 combined with deep line-by-line adversarial modeling of Uniswap V4 Custom Accounting deltas, flash-loan Sybil vectors, and Keeper state machines.
 3. **Strict Checks-Effects-Interactions (CEI) & State Isolation:** Absolute elimination of state-update reentrancy hazards, cross-period pot bleed, and unauthenticated upkeep triggers.
-4. **Economic & Game-Theoretic Hardening:** Provable single-sided LP rug-proofing, genesis launch guard with `hookData` anti-spoofing, Hybrid 24h Anti-Sybil Free-Ticket Staking Claim (zero unstake lock by default; 0h lock after ≥24h staked, or 24h lock on Instant-Claim <24h), `[0.1%, 2.0%]` eligible Real Yield staking brackets, Validated P2P NFT Ticket Marketplace with 2.0% Lottery Tax routing, on-chain Top 10 volume leaderboard with staking volume boost (`+50%` at `2%` stake), and hourly batched Uniswap V4 automated buyback & burn to `0xdead`.
+4. **Economic & Game-Theoretic Hardening:** Provable single-sided LP rug-proofing, genesis launch guard with `hookData` anti-spoofing, **10.0% Launch Boost Tax up to $100k Market Cap (`3.5%` Hourly / `3.5%` Lottery / `2.0%` Protocol / `1.0%` Programmable) auto-switching to 4.0% at $100k MC**, Hybrid 24h Anti-Sybil Free-Ticket Staking Claim (zero unstake lock by default; 0h lock after ≥24h staked, or 24h lock on Instant-Claim <24h), `[0.1%, 2.0%]` eligible Real Yield staking brackets, Validated P2P NFT Ticket Marketplace with 2.0% Lottery Tax routing, on-chain Top 10 volume leaderboard with staking volume boost (`+50%` at `2%` stake), and hourly batched Uniswap V4 automated buyback & burn to `0xdead`.
 
 ### Vulnerability Classification Matrix
 
@@ -35,7 +35,7 @@ The audit evaluated all core contracts, Uniswap V4 hooks, single-sided LP vaults
 | Contract / Component | Source File | Standard | Description |
 | :--- | :--- | :--- | :--- |
 | **$IRL Token** | `src/InternetRobinLottery.sol` | ERC-20 | Standard 1B token with 18 decimals and zero minting backdoors. |
-| **V4 Lottery Hook** | `src/IRLUniswapV4Hook.sol` | Uniswap V4 Hook | Custom accounting hook collecting 4% native WETH tax, Top 10 volume tracker, hourly batched V4 buyback & burn, and lottery coordinator. |
+| **V4 Lottery Hook** | `src/IRLUniswapV4Hook.sol` | Uniswap V4 Hook | Custom accounting hook collecting 10.0% Launch Boost WETH tax (<$100k MC: 3.5%/3.5%/2.0%/1.0%) auto-switching to 4.0% standard tax at $100k MC, Top 10 volume tracker, hourly batched V4 buyback & burn, and lottery coordinator. |
 | **Real Yield Staking** | `src/IRLStaking.sol` | MasterChef Yield | Real yield dividend vault streaming 30% of hourly pots in native ETH across `[0.1%, 2.0%]` eligible tiers with a Hybrid 24h Anti-Sybil Free-Ticket Claim Mechanic (zero default unstake lock). |
 | **Lottery Tickets & Market** | `src/IRLTicketNFT.sol` | ERC-721 + P2P Market | Dynamic NFT raffle tickets with built-in P2P Marketplace (`listTicket` / `buyTicket`), 2.0% Lottery Tax routing, and weekly holding caps (`42`–`70`). |
 | **Marketing Vault** | `src/IRLMarketingVault.sol` | Single-Sided LP Vault | Directional liquidity vault mathematically preventing early dev dumps. |
@@ -189,10 +189,10 @@ $$\sum \text{Pots} + \sum \text{Transfers} \equiv \text{Total Swap Fees}$$
 
 ---
 
-## 5. Automated Testing Suite Benchmark (47 / 47 Tests Passed)
+## 5. Automated Testing Suite Benchmark (48 / 48 Tests Passed)
 
 ```text
-Ran 8 test suites: 47 passed, 0 failed, 0 skipped (100% success rate)
+Ran 8 test suites: 48 passed, 0 failed, 0 skipped (100% success rate)
 
 Suite 1: test/TrailOfBitsEcosystemInvariants.t.sol (6 tests)
   - test_Invariant_FeeConservation_ZeroWeiLeak_Fuzz [PASS] (runs: 256)
@@ -202,7 +202,7 @@ Suite 1: test/TrailOfBitsEcosystemInvariants.t.sol (6 tests)
   - test_Invariant_StakingSolvency_Fuzz [PASS] (runs: 256)
   - test_Invariant_StakingUnallocatedYieldBuffered [PASS]
 
-Suite 2: FairLaunchAndAntiWhaleValidation (10 tests)
+Suite 2: FairLaunchAndAntiWhaleValidation (11 tests)
   - test_LaunchGuard_PostWindow_EveryonePaysNormalTax [PASS]
   - test_LaunchGuard_AutoLaunchOnFirstSwap [PASS]
   - test_LaunchGuard_BatchWhitelist [PASS]
@@ -212,6 +212,7 @@ Suite 2: FairLaunchAndAntiWhaleValidation (10 tests)
   - test_LaunchGuard_SpoofedHookDataRejected [PASS]
   - test_LaunchGuard_ExemptAddress_PaysNormalTax [PASS]
   - test_AntiWhale_AutoDisableAt50kMarketCap [PASS]
+  - test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent [PASS]
   - test_NFTTicket_OnChainHoldingCapEnforced [PASS]
 
 Suite 3: test/OpenVRFDeploymentAndIntegration.t.sol (6 tests)
@@ -265,9 +266,9 @@ Suite 8: test/utils/libraries/EasyPosm.t.sol (6 tests)
 ### Final Verdict: **APPROVED FOR LAUNCH (100% PRODUCTION READY)**
 
 1. **Zero Open Vulnerabilities:** All 15 Argon adversarial findings and 5 Trail of Bits findings have been remediated and verified on-chain.
-2. **Hardened Launch & Anti-Spoofing:** `launchTimestamp` initializes on the first swap; `_resolveTrader` blocks `hookData` spoofing; anti-whale limits (`1%` Max TX, `2%` Max Wallet) auto-lift at 50k MC.
+2. **Hardened Launch, 50k MC Anti-Whale & 100k MC Launch Boost Tax:** `launchTimestamp` initializes on the first swap; `_resolveTrader` blocks `hookData` spoofing; anti-whale limits (`1%` Max TX, `2%` Max Wallet) auto-lift at **$50k MC** (`disableAntiWhaleSqrtPrice`), while the **10.0% Launch Boost Tax** (`3.5%` Hourly / `3.5%` Lottery / `2.0%` Protocol / `1.0%` Programmable) supercharges early prize pots and auto-switches at **$100k MC** (`disableLaunchTaxSqrtPrice`) to the **4.0% Standard Tax** (`1% / 1% / 1% / 1%`).
 3. **True 35/35/30 Hourly Redistribution & Hybrid 24h Staking:**
    - **35% Top 10 of the Hour:** Strictly distributed to the Top 10 traders of the hour, incorporating the linear Staking Volume Multiplier (up to `+50%` at `2%` staked: `0.05 WETH` swap = `0.075 WETH` volume score).
-   - **35% Hourly Swapper Cashback:** `0.35%` per swapper accumulated during the hour and paid out once per hour.
+   - **35% Hourly Swapper Cashback:** `1.225%` during Launch Boost (`< $100k MC`) and `0.35%` standard cashback per swapper accumulated during the hour and paid out once per hour.
    - **30% Stakers Real Yield:** Streamed in native ETH across eligible stakers ranked from `0.1%` (`1M $IRL`) to `2.0%` (`20M $IRL` max tier), with **zero unstake lock by default** and the **Hybrid 24h Free-Ticket Claim Mechanic** (`0h` lock after ≥24h staked, or `24h` lock on Instant-Claim <24h).
-4. **Double Supply Deflation (Hourly Batched Buyback & Burn):** `0.50%` auto-burn by Programmable.market on every swap + `0.10%` accumulated in `buybackPot` from the 1.0% protocol/dev fee and **executed once per hour** on the Uniswap V4 pool to `0xdead` = **`0.60%` total volume burned** without cluttering the chart with micro-buys on every trade.
+4. **Double Supply Deflation (Hourly Batched Buyback & Burn):** `0.50%` auto-burn by Programmable.market on every swap + `0.20%` (`< $100k MC`) / `0.10%` (`≥ $100k MC`) accumulated in `buybackPot` from the protocol/dev fee and **executed once per hour** on the Uniswap V4 pool to `0xdead` = **`0.70%` launch burn / `0.60%` standard volume burned** without cluttering the chart with micro-buys on every trade.

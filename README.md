@@ -56,7 +56,7 @@ All smart contracts are developed with **Solidity 0.8.26**, optimized with low-l
 | Contract | File Path | Standard | Key Architectural Role |
 | :--- | :--- | :--- | :--- |
 | **$IRL Token** | [`src/InternetRobinLottery.sol`](src/InternetRobinLottery.sol) | ERC-20 | Standard, ultra-lightweight 1B token with 18 decimals and no external mint functions. |
-| **V4 Lottery Hook** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects 4% native WETH tax (1% Programmable + 3% IRL pots), tracks Top 10 boosted volume, mints tickets, executes batched hourly V4 buyback & burn, and triggers OpenVRF. |
+| **V4 Lottery Hook** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects native WETH tax (**10.0% Launch Boost Tax up to $100k MC**: `3.5%` Hourly + `3.5%` Lottery + `2.0%` Protocol + `1.0%` Programmable $\rightarrow$ auto-switches at **$100k MC** to **4.0% Standard Tax**: `1% / 1% / 1% / 1%`), tracks Top 10 boosted volume, mints tickets, executes batched hourly V4 buyback & burn, and triggers OpenVRF. |
 | **Real Yield Staking** | [`src/IRLStaking.sol`](src/IRLStaking.sol) | MasterChef Real Yield | Continuous native ETH dividend pool streaming 30% of hourly pots across `[0.1%, 2.0%]` eligible staker tiers with a Hybrid 24h Free-Ticket Claim Mechanic (zero unstake lock by default; 0h lock if free tickets claimed after ≥24h staked, or 24h lock on Instant-Claim <24h). |
 | **Lottery Tickets & Market** | [`src/IRLTicketNFT.sol`](src/IRLTicketNFT.sol) | ERC-721 + P2P Market | Dynamic NFT raffle tickets with built-in P2P Marketplace (`listTicket` / `buyTicket`), 2.0% Lottery Tax routing (`1% Daily + 1% Sunday` for Daily+Weekly tickets or `2% Sunday` for Weekly-only), and weekly holding caps (`42`–`70`). |
 | **Marketing Vault** | [`src/IRLMarketingVault.sol`](src/IRLMarketingVault.sol) | Single-Sided LP Vault | Locks 10% marketing allocation as single-sided LP; mathematically blocks withdrawals until 100% converted to WETH. |
@@ -64,48 +64,57 @@ All smart contracts are developed with **Solidity 0.8.26**, optimized with low-l
 
 ---
 
-## 3. The 4.0% Uniswap V4 Hook Tax Breakdown (Programmable.market Launch)
+## 3. The Uniswap V4 Hook Tax Breakdown (10% Launch Boost < $100k MC $\rightarrow$ 4.0% Standard Tax)
 
-Every trade (buys and sells) incurs a strict, immutable **4.0% tax** collected in WETH:
+To ignite massive early prize pots from the very first hour, day, and week of trading, the Uniswap V4 Hook features a **two-phase automatic tax schedule** collected natively in WETH:
+
+1. **🚀 Phase 1 — 10.0% Launch Boost Tax (Up to $100,000 Market Cap):**
+   - **3.5% Hourly Stream (`35/35/30`):** Supercharges the first hourly pots (`1.225%` Top 10 Traders / `1.225%` Active Swappers Cashback / `1.05%` Stakers Real Yield in ETH).
+   - **3.5% Dual Lottery Engine (OpenVRF):** Supercharges the first Daily 24h Grand Jackpots (`1.75%`) and the first Sunday Mega-Jackpot (`1.75%`).
+   - **2.0% Protocol & Deflation:** `90%` (`1.80%`) protocol/marketing & gas upkeep + `10%` (`0.20%`) Hourly Batched V4 Buyback & Burn to `0xdead` (**`0.70%` total swap burn during Launch Boost** when combined with Programmable's `0.50%` burn!).
+   - **1.0% Programmable.market Fee:** `50%` Auto-Burn (`0.50%` of swap) + `50%` Programmable Treasury (`0.50%`).
+   - *Autonomous $100k MC Cutoff:* As soon as the pool price organically reaches **$100,000 Market Cap** (`disableLaunchTaxSqrtPrice`, `5.0x` from initial $20k MC), `launchTaxEnabled` permanently and automatically disables on-chain (`emit LaunchTaxDisabled()`), transitioning to the **4.0% Standard Tax**!
+
+2. **⚡ Phase 2 — 4.0% Standard Cruise Tax (From $100,000 Market Cap Onward):**
 
 ```text
-                               4.0% Uniswap V4 Hook Tax
-                                          │
-         ┌────────────────────────────────┼────────────────────────────────┬────────────────────────────────┐
-         ▼                                ▼                                ▼                                ▼
-1.0% Programmable.market Fee     1.0% Hourly Stream (35/35/30)    1.0% Dual Lottery Engine       1.0% Protocol & Deflation
+           10.0% Launch Boost Tax (< $100k MC)  ──►  4.0% Standard Tax (≥ $100k MC)
+                                           │
+          ┌────────────────────────────────┼────────────────────────────────┬────────────────────────────────┐
+          ▼                                ▼                                ▼                                ▼
+1.0% Programmable.market Fee     3.5% ➔ 1.0% Hourly (35/35/30)    3.5% ➔ 1.0% Dual Lottery       2.0% ➔ 1.0% Protocol & Burn
  ├── 50% Auto-Burn (0.50% swap)   ├── 35% Top 10 Volume Traders    ├── 50% Daily 24h (OpenVRF)     ├── 90% Gas & Infrastructure
  └── 50% Programmable Treasury    ├── 35% Active Swapper Cashback  └── 50% Sunday Mega-Jackpot     └── 10% Hourly Buyback & Burn
                                   └── 30% Stakers Real Yield (ETH)
 ```
 
-### ⚡ 1. 1.0% Programmable.market Protocol Tax
+### ⚡ 1. 1.0% Programmable.market Protocol Tax (`1.0%` at Launch & Cruise)
 - Routed directly to Programmable.market's recipient address on each swap.
 - **50% Auto-Burned Onchain:** 0.50% of every swap volume is permanently burned by Programmable.
 - **50% Programmable Treasury:** Funds Programmable ecosystem liquidity and partner backing.
 
-### ⏱️ 2. 1.0% Hourly Stream (35% Top 10 / 35% Hourly Cashback / 30% Stakers Real Yield)
+### ⏱️ 2. Hourly Stream (`3.5%` up to $100k MC $\rightarrow$ `1.0%` Standard: 35% Top 10 / 35% Cashback / 30% Stakers)
 - **35% Top 10 of the Hour (`topTradersPerHour`):** Distributed strictly among the **Top 10 traders of that hour**, ranked and weighted by their **Staking-Boosted Volume Score** (`+0%` to `+50%` bonus up to `2.0%` staked).  
   *Concrete Example:* If two traders each execute `0.05 WETH` of volume during the hour, and one of them stakes `2.0%` of the supply (`20,000,000 $IRL` = `+50%` volume bonus), the non-staker is counted at **`0.050 WETH`** while the `2.0%` staker is counted at **`0.075 WETH`** (`0.05 × 1.50`) for both Top 10 ranking and Top 10 pot share!
-- **35% Active Swapper Hourly Cashback:** Distributed to **all traders who traded during the hour**. This equals a guaranteed **`0.35%` ETH cashback** on every swapper's volume, accumulated throughout the hour and **distributed once per hour** during the automated hourly upkeep.
+- **35% Active Swapper Hourly Cashback:** Distributed to **all traders who traded during the hour** (**`1.225%` cashback during Launch Boost `< $100k MC`**, then **`0.35%` standard cashback**), accumulated throughout the hour and **distributed once per hour** during the automated hourly upkeep.
 - **30% Native ETH Real Yield (`0.1%` to `2.0%` Staking Tiers):** Streamed in native ETH to `$IRL` stakers ranked between **`0.1%` (`1,000,000 $IRL` minimum)** and **`2.0%` (`20,000,000 $IRL` maximum cap per wallet)** via the `IRLStaking` MasterChef `accEthPerShare` engine.
 
-### 🏆 3. 1.0% Dual Lottery Engine (OpenVRF) & 2.0% P2P Marketplace Lottery Tax
-- **50% Daily Grand Jackpot:** Drawn every midnight strictly among tickets minted *that day* (with atomic prize snapshotting per VRF request).
-- **50% Sunday Mega-Jackpot:** Massive weekly draw across **all** tickets minted from Monday through Sunday.
+### 🏆 3. Dual Lottery Engine (`3.5%` up to $100k MC $\rightarrow$ `1.0%` Standard via OpenVRF) & 2.0% P2P Marketplace Tax
+- **50% Daily Grand Jackpot (`1.75%` at Launch $\rightarrow$ `0.50%` Standard):** Drawn every midnight strictly among tickets minted *that day* (with atomic prize snapshotting per VRF request).
+- **50% Sunday Mega-Jackpot (`1.75%` at Launch $\rightarrow$ `0.50%` Standard):** Massive weekly draw across **all** tickets minted from Monday through Sunday.
 - **Validated P2P Ticket Marketplace (`IRLTicketNFT.buyTicket`):** Every secondary ticket sale on the P2P Marketplace pays **98.0% to the seller** and routes a **2.0% Lottery Tax** directly into the lottery pots via `IRLUniswapV4Hook.receiveMarketplaceTax(tokenId)`:
   - **Daily + Weekly Ticket (minted today):** Splits the 2% tax **50/50** (`1.0%` to `dailyLotteryPot` + `1.0%` to `sundayMegaPot`).
   - **Weekly-Only Ticket (minted earlier in the week):** Routes **100% of the 2% tax** (`2.0%`) directly to `sundayMegaPot`.
 
-### ⚙️ 4. 1.0% Protocol Solvency & Hourly Batched Deflation
+### ⚙️ 4. Protocol Solvency & Hourly Batched Deflation (`2.0%` up to $100k MC $\rightarrow$ `1.0%` Standard)
 - **90% Protocol Upkeep:** Funds decentralized OpenVRF oracle gas, Keepers automation, and global growth.
-- **10% Hourly Batched Buyback & Burn (`0.10%` of Swap Volume):** On every buy and sell, 10% of the 1.0% protocol/dev fee accumulates in `buybackPot` in native ETH rather than executing micro-swaps on every trade. **Once every hour** (during the automated hourly upkeep or via `executeBuybackAndBurn` gated by `lastBuybackHour`), the entire accumulated `buybackPot` is swapped in a single consolidated `WETH -> $IRL` transaction on the Uniswap V4 pool and permanently burned to `0x000000000000000000000000000000000000dEaD`. This prevents chart clutter from micro-buybacks on every user trade while delivering a clean hourly buyback & burn candle.
+- **10% Hourly Batched Buyback & Burn (`0.20%` of Swap Volume `< $100k MC` $\rightarrow$ `0.10%` Standard):** On every buy and sell, 10% of the protocol/dev fee accumulates in `buybackPot` in native ETH rather than executing micro-swaps on every trade. **Once every hour** (during the automated hourly upkeep or via `executeBuybackAndBurn` gated by `lastBuybackHour`), the entire accumulated `buybackPot` is swapped in a single consolidated `WETH -> $IRL` transaction on the Uniswap V4 pool and permanently burned to `0x000000000000000000000000000000000000dEaD`. This prevents chart clutter from micro-buybacks on every user trade while delivering a clean hourly buyback & burn candle.
 
-### 🔥 The Double-Deflation Flywheel (0.60% Total Volume Burn)
+### 🔥 The Double-Deflation Flywheel (0.70% Burn at Launch $\rightarrow$ 0.60% Standard Burn)
 Every hour combines two complementary deflationary mechanisms:
 - **0.50%** burned automatically onchain by Programmable.market on each swap.
-- **0.10%** accumulated in `buybackPot` from the 1.0% protocol/dev fee and **bought back & burned once per hour** on the V4 pool to `0xdead`.
-- **Total Burn = 0.60% of all trading volume permanently erased from supply!**
+- **0.20% (up to $100k MC) / 0.10% (≥ $100k MC)** accumulated in `buybackPot` from the protocol/dev fee and **bought back & burned once per hour** on the V4 pool to `0xdead`.
+- **Total Burn = 0.70% during Launch Boost (< $100k MC) and 0.60% permanently thereafter!**
 
 ---
 
@@ -222,17 +231,20 @@ To solve the historical problem of developer tokens dumping on buyers, the $IRL 
 
 ---
 
-## 7. Genesis Fair-Launch & Anti-Whale Mechanics
+## 7. Genesis Fair-Launch, Anti-Whale & 10% Launch Boost Mechanics
 
-To ensure healthy token distribution at pool initialization, the Uniswap V4 Hook enforces strict fair-launch constraints:
+To ensure healthy token distribution and explosive early reward pots at pool initialization, the Uniswap V4 Hook enforces two autonomous market-cap milestones:
 
 - **Total Supply:** 1,000,000,000 $IRL (100% Fixed, Zero Inflation)
 - **Initial Market Cap:** ~$20,000 USD
-- **Max Transaction Limit:** 10,000,000 $IRL (1.0% of supply)
-- **Max Wallet Limit:** 20,000,000 $IRL (2.0% of supply)
+- **Max Transaction Limit (Up to $50k MC):** 10,000,000 $IRL (1.0% of supply)
+- **Max Wallet Limit (Up to $50k MC):** 20,000,000 $IRL (2.0% of supply)
+- **10.0% Launch Boost Tax (Up to $100k MC):** Supercharges early prize pools (`3.5%` Hourly Pot + `3.5%` Daily/Sunday Lottery Pots + `2.0%` Protocol/Buyback Pot + `1.0%` Programmable).
 
-### 🔓 Autonomous Limit Removal
-The Hook reads pool prices on every swap. As soon as the price organically crosses the target threshold (`disableAntiWhaleSqrtPrice`), the Hook permanently disables all limits without developer intervention.
+### 🔓 Autonomous Market-Cap Cutoffs ($50k MC & $100k MC)
+The Hook reads pool prices on every swap (`getSlot0`):
+1. **At $50,000 Market Cap (`disableAntiWhaleSqrtPrice`, `2.5x` initial price):** Automatically and permanently disables the `1%` Max TX and `2%` Max Wallet limits (`limitsEnabled = false; emit LimitsDisabled()`).
+2. **At $100,000 Market Cap (`disableLaunchTaxSqrtPrice`, `5.0x` initial price):** Automatically and permanently disables the 10% Launch Boost Tax (`launchTaxEnabled = false; emit LaunchTaxDisabled()`), switching to the **4.0% Standard Cruise Tax** (`1% / 1% / 1% / 1%`).
 
 ---
 

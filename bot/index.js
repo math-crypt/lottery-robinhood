@@ -52,7 +52,7 @@ bot.start((ctx) => {
         `• *Beware of fake tokens and scammers.* No team member will ever DM you first.\n\n` +
         `Explore the commands below to learn all about the protocol mechanics before liquidity seeding:\n` +
         `/about - Protocol thesis & V4 Hook mechanics\n` +
-        `/tokenomics - 4% total tax (1% Programmable + 3% IRL Ecosystem)\n` +
+        `/tokenomics - 10% Launch Boost (<$100k MC) -> 4% Standard Tax\n` +
         `/contracts - Smart contract status\n` +
         `/launch - Official launch status & roadmap\n` +
         `/socials - Official X and Telegram links\n` +
@@ -90,61 +90,64 @@ bot.command('about', (ctx) => {
 
 We steal from the whales to give back to the community! $IRL is an innovative DeFi ecosystem launching via **Programmable.market** on the Robinhood Chain, utilizing cutting-edge **Uniswap V4 Hooks** to create a fair, gamified, and hyper-rewarding environment.
 
-🌟 *Core Mechanics & 4.0% Constant Swap Tax:*
+🚀 *10.0% Launch Boost Tax (< $100k MC) ➔ 4.0% Standard Tax (≥ $100k MC):*
+To supercharge the very first hourly, daily, and weekly prize pots at launch, swaps carry a **10.0% Launch Boost Tax** up to **$100,000 Market Cap** (`3.5%` Hourly Pot + `3.5%` Lottery Pots + `2.0%` Protocol/Buyback Pot + `1.0%` Programmable), and then **automatically drop to the 4.0% Standard Tax** (`1% / 1% / 1% / 1%`) at $100k MC!
 
 1️⃣ **1.0% Programmable.market Protocol Tax**
 - 50% Auto-Burned onchain directly on every swap (0.50% volume burned forever)!
 - 50% routed to Programmable treasury.
 
-2️⃣ **Strict Daily Lottery & Sunday Mega-Jackpot (1.0% Tax via OpenVRF)**
+2️⃣ **Strict Daily Lottery & Sunday Mega-Jackpot (3.5% < $100k MC ➔ 1.0% Standard via OpenVRF)**
 Trade $IRL to earn NFT Tickets (0.10 WETH threshold per ticket, boosted up to +50% by staking). 
 - Every midnight, a winner is drawn strictly among tickets minted *that day*.
 - Every Sunday evening, the **Sunday Mega-Jackpot** is drawn among all tickets minted Monday through Sunday!
 
-3️⃣ **Hourly Rewards (1.0% Tax: 35% Top 10 / 35% Cashback / 30% Real Yield Staking)**
+3️⃣ **Hourly Rewards (3.5% < $100k MC ➔ 1.0% Standard: 35% Top 10 / 35% Cashback / 30% Real Yield Staking)**
 - **35% Top 10 of the Hour**: Distributed strictly among the Top 10 traders of the hour, boosted by staking volume multipliers (up to +50% at 2% staked: e.g. 0.05 WETH traded = 0.075 WETH score!).
-- **35% Hourly Trader Cashback**: Distributed once per hour to all active traders of that hour (equivalent to a 0.35% ETH cashback on your swap volume).
+- **35% Hourly Trader Cashback**: Distributed once per hour to all active traders of that hour (1.225% ETH cashback during Launch Boost, 0.35% ETH standard cashback).
 - **30% Stakers Real Yield**: Streamed as native ETH dividends across eligible $IRL stakers ranked from 0.1% (1M $IRL) to 2.0% (20M $IRL max tier)!
 
-4️⃣ **Protocol Solvency & Double Deflation (1.0% Tax)**
+4️⃣ **Protocol Solvency & Double Deflation (2.0% < $100k MC ➔ 1.0% Standard)**
 - 90% for OpenVRF gas, automated keep-alives, and marketing.
-- 10% dedicated to permanent $IRL Buyback & Burn (automated V4 swap to 0xdead)!
-🔥 *Double Deflation*: Combined with Programmable's 0.50% auto-burn, **0.60% of all swap volume is burned forever**!
+- 10% dedicated to **Hourly Batched $IRL Buyback & Burn** (0.20% at Launch / 0.10% Standard swapped once per hour on V4 to 0xdead)!
+🔥 *Double Deflation*: Combined with Programmable's 0.50% auto-burn, **0.70% (Launch) / 0.60% (Standard) of all swap volume is burned forever**!
 
-5️⃣ **Automated Anti-Whale Protection**
-Max transaction (1%) and max wallet (2%) dynamically protect the pool at launch.
+5️⃣ **Automated Anti-Whale Protection (< $50k MC)**
+Max transaction (1%) and max wallet (2%) dynamically protect the pool at launch and auto-disable at $50k Market Cap.
 
 *Zero Sell Pressure*: All ecosystem taxes are collected natively in WETH directly from the liquidity pool (Swap-and-Liquify via V4). The chart never dumps to fund rewards!
 
-Use /tokenomics to see the exact 4% tax breakdown, or /contracts to verify our code.`;
+Use /tokenomics to see the exact tax breakdown, or /contracts to verify our code.`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
 bot.command('tokenomics', (ctx) => {
     const text = `📊 *$IRL Tokenomics & Taxes* 📊
 
-There is a constant *4.0% tax* on every swap (buys and sells), collected natively in ETH directly from the Uniswap V4 Hook:
+All taxes are collected natively in ETH directly from the Uniswap V4 Hook in two automatic phases:
+• 🚀 **Phase 1 — 10.0% Launch Boost Tax (Up to $100,000 Market Cap):** Supercharges the first hourly, daily, and weekly reward pots (`3.5%` Hourly + `3.5%` Lottery + `2.0%` Protocol + `1.0%` Programmable).
+• ⚡ **Phase 2 — 4.0% Standard Cruise Tax (Auto-switches at $100,000 Market Cap):** `1.0%` Hourly + `1.0%` Lottery + `1.0%` Protocol + `1.0%` Programmable.
 
-⚡ *1.0% Programmable.market Fee*:
+⚡ *1.0% Programmable.market Fee (Launch & Standard)*:
   • Managed directly by Programmable.market.
   • 50% Auto-Burn (0.50% of every swap burned onchain!)
   • 50% Programmable Treasury reserve.
 
-🏆 *1.0% Dual Lottery Pot*:
-  • 50% for the **Daily Lottery** (Strict 24h draw via OpenVRF).
-  • 50% for the **Sunday Mega-Jackpot** (All week tickets).
+🏆 *3.5% (<$100k MC) ➔ 1.0% (≥$100k MC) Dual Lottery Pot*:
+  • 50% for the **Daily Lottery** (1.75% at Launch ➔ 0.50% Standard via OpenVRF).
+  • 50% for the **Sunday Mega-Jackpot** (1.75% at Launch ➔ 0.50% Standard).
 
-⏱️ *1.0% Hourly Redistribution (35/35/30)*:
+⏱️ *3.5% (<$100k MC) ➔ 1.0% (≥$100k MC) Hourly Redistribution (35/35/30)*:
   • 35% for the **Top 10 Volume Traders** of the hour (boosted up to +50% by staking: 0.05 WETH = 0.075 WETH score at 2% stake).
-  • 35% for **All Active Traders** of the hour (0.35% ETH cashback distributed once per hour).
+  • 35% for **All Active Traders** of the hour (1.225% ETH cashback during Launch Boost ➔ 0.35% ETH standard cashback distributed once per hour).
   • 30% for **Eligible Stakers (0.1% to 2.0% tiers)** streamed as native ETH Real Yield!
 
-⚙️ *1.0% Protocol & Deflation*:
+⚙️ *2.0% (<$100k MC) ➔ 1.0% (≥$100k MC) Protocol & Deflation*:
   • 90% for OpenVRF gas, automated keep-alives, and marketing.
-  • 10% dedicated to **Hourly Batched Buyback & Burn** (accumulated in \`buybackPot\` and swapped WETH -> $IRL to \`0xdead\` once per hour so the chart is never spammed with micro-buys on every trade)!
+  • 10% dedicated to **Hourly Batched Buyback & Burn** (0.20% at Launch ➔ 0.10% Standard accumulated in \`buybackPot\` and swapped WETH -> $IRL to \`0xdead\` once per hour so the chart is never spammed with micro-buys on every trade)!
 
 🔥 *Double Deflation Flywheel*:
-Total *0.60% of trading volume is permanently burned* (0.50% auto-burned on every swap by Programmable + 0.10% protocol buyback & burn executed once every hour to \`0xdead\`)!
+Total *0.70% (<$100k MC) / 0.60% (≥$100k MC) of trading volume is permanently burned* (0.50% auto-burned on every swap by Programmable + 0.20%/0.10% protocol buyback & burn executed once every hour to \`0xdead\`)!
 
 *Zero Chart Sell Pressure*: Taxes are intercepted natively in ETH by the V4 Hook, so the $IRL chart never dumps to fund rewards!`;
     ctx.reply(text, { parse_mode: 'Markdown' });

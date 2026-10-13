@@ -72,9 +72,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     IRLStaking public immutable stakingContract;
     IWETH public immutable weth;
 
-    // --- STORAGE PACKING (1 Slot for Anti-Whale state) ---
+    // --- STORAGE PACKING (Anti-Whale & 100k MC Launch Boost Tax state) ---
     bool public limitsEnabled = true;
+    bool public launchTaxEnabled = true;
     uint160 public disableAntiWhaleSqrtPrice;
+    uint160 public disableLaunchTaxSqrtPrice;
     uint32 public callbackGasLimit = 150000;
     bool private _inBuyback;
 
@@ -127,6 +129,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     event TradingLaunched(uint256 launchTimestamp);
     event DevSnipeTaxClaimed(address indexed recipient, uint256 amount);
     event LimitsDisabled();
+    event LaunchTaxDisabled();
     event CallbackGasLimitUpdated(uint32 newGasLimit);
 
     function setCallbackGasLimit(uint32 _gasLimit) external onlyOwner {
@@ -139,18 +142,37 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         disableAntiWhaleSqrtPrice = _price;
     }
 
+    function setDisableLaunchTaxPrice(uint160 _price) external onlyOwner {
+        disableLaunchTaxSqrtPrice = _price;
+    }
+
+    function setLaunchTaxEnabled(bool _enabled) external onlyOwner {
+        launchTaxEnabled = _enabled;
+        if (!_enabled) {
+            emit LaunchTaxDisabled();
+        }
+    }
+
     /**
-     * @notice Configures the auto-disable price threshold for 50k Market Cap based on starting price at 20k MC.
+     * @notice Configures the auto-disable price thresholds from starting price at 20k Market Cap:
+     * - 50k Market Cap (2.5x initial price, sqrt(2.5) ~= 1.58113883): auto-lifts Max TX & Max Wallet limits.
+     * - 100k Market Cap (5.0x initial price, sqrt(5.0) ~= 2.23606798): auto-switches tax from 10% Launch Boost to 4% Standard.
      * @param initialSqrtPrice The pool's initial sqrtPriceX96 at 20k Market Cap.
      * @param isIrlToken0 True if IRL is token0, false if WETH is token0.
      */
     function setDisableAntiWhaleFromInitialPrice(uint160 initialSqrtPrice, bool isIrlToken0) external onlyOwner {
         if (isIrlToken0) {
-            // Price = WETH / IRL. Value increases by 2.5x -> sqrtPrice increases by sqrt(2.5) ~= 1.58113883
+            // Price = WETH / IRL.
+            // 50k MC (2.5x) -> sqrtPrice increases by sqrt(2.5) ~= 1.58113883
             disableAntiWhaleSqrtPrice = uint160((uint256(initialSqrtPrice) * 158113883) / 100000000);
+            // 100k MC (5.0x) -> sqrtPrice increases by sqrt(5.0) ~= 2.23606798
+            disableLaunchTaxSqrtPrice = uint160((uint256(initialSqrtPrice) * 223606798) / 100000000);
         } else {
-            // Price = IRL / WETH. Value increases by 2.5x -> sqrtPrice decreases by sqrt(2.5) ~= 1.58113883
+            // Price = IRL / WETH.
+            // 50k MC (2.5x) -> sqrtPrice decreases by sqrt(2.5) ~= 1.58113883
             disableAntiWhaleSqrtPrice = uint160((uint256(initialSqrtPrice) * 100000000) / 158113883);
+            // 100k MC (5.0x) -> sqrtPrice decreases by sqrt(5.0) ~= 2.23606798
+            disableLaunchTaxSqrtPrice = uint160((uint256(initialSqrtPrice) * 100000000) / 223606798);
         }
     }
 
@@ -508,15 +530,17 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Removes the Anti-Whale & Anti-Snipe launch limits definitively.
+     * @notice Removes the Anti-Whale & Launch limits definitively.
      */
     function removeLimits() external onlyOwner {
         limitsEnabled = false;
+        launchTaxEnabled = false;
         emit LimitsDisabled();
+        emit LaunchTaxDisabled();
     }
 
     /**
-     * @notice Updates the dev wallet address receiving the 90% anti-snipe tax.
+     * @notice Updates the dev wallet address receiving the launch guard tax.
      */
     function setDevWallet(address _devWallet) external onlyOwner {
         require(_devWallet != address(0), "InvalidDevWalletZero");
@@ -525,7 +549,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Whitelists or removes an address from the 90% anti-snipe tax.
+     * @notice Whitelists or removes an address from the launch guard tax.
      */
     function setAntiSnipeWhitelist(address account, bool status) external onlyOwner {
         antiSnipeWhitelist[account] = status;
@@ -569,7 +593,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Claims any anti-snipe fees stored in the fallback pot if direct call failed.
+     * @notice Claims any launch guard fees stored in the fallback pot if direct call failed.
      */
     function claimDevSnipeTax() external nonReentrant {
         require(msg.sender == owner() || msg.sender == devWallet, "Unauthorized");
@@ -583,7 +607,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Determines if a trader is subject to the 90% Anti-Snipe tax.
+     * @dev Determines if a trader is subject to the initial launch guard tax.
      */
     function _isSniper(address trader) internal view returns (bool) {
         if (!limitsEnabled) return false;
@@ -593,7 +617,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Routes Anti-Snipe fees: 1% mandatory to Programmable.market, 90% to dev wallet.
+     * @dev Routes initial launch guard fees: 1% mandatory to Programmable.market, 90% to dev wallet.
      */
     function _routeAntiSnipeFees(uint256 devFee, uint256 progFee, address trader) internal {
         // 1. Mandatory 1% for Programmable.market
@@ -609,7 +633,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             programmableFeePot += progFee;
         }
 
-        // 2. 90% Anti-Snipe Tax routed directly to Dev Wallet
+        // 2. Launch Guard Tax routed directly to Dev Wallet
         address recipient = devWallet != address(0) ? devWallet : owner();
         if (devFee > 0) {
             (bool successDev, ) = payable(recipient).call{value: devFee}("");
@@ -640,17 +664,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Distributes the 4% swap tax across Programmable.market and all ecosystem pots:
+     * @dev Distributes the 4% standard swap tax (post-100k MC) across Programmable.market and all ecosystem pots:
      * - 1.0% Programmable.market Fee: Routed to Programmable (which manages 50% Auto-Burn + 50% Treasury)
      * - 1.0% Hourly Stream (35/35/30): 35% Top 10 Volume, 35% Active Swapper Cashback, 30% Stakers Real Yield in ETH
      * - 1.0% Dual Lottery Engine: 50% Daily 24h VRF Draw, 50% Sunday Mega-Jackpot
-     * - 1.0% Protocol & Deflation: 90% Gas/Infra/Marketing, 10% Deflationary Buyback & Burn
+     * - 1.0% Protocol & Deflation: 90% Gas/Infra/Marketing, 10% Hourly Batched Buyback & Burn
      */
     function _distributeSwapFees(uint256 feeAmount, address trader) internal {
         uint256 split = feeAmount / 4; // Each 1.0% portion of the 4.0% tax
         
         // 1. Programmable.market Fee (1% of swap):
-        // Forwarded directly to Programmable fee recipient (who manages their burn & treasury)
         uint256 progFee = split;
         if (programmableFeeRecipient != address(0) && progFee > 0) {
             (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
@@ -692,8 +715,67 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         sundayMegaPot += sundayShare;
 
         // 4. Protocol split (1% of swap):
-        // 90% Protocol & Marketing pot, 10% Deflationary Buyback & Burn
+        // 90% Protocol & Marketing pot, 10% Hourly Batched Buyback & Burn
         uint256 protocolTotal = feeAmount - (3 * split);
+        uint256 buybackShare = (protocolTotal * 10) / 100;
+        protocolPot += (protocolTotal - buybackShare);
+        buybackPot += buybackShare;
+    }
+
+    /**
+     * @dev Distributes the 10.0% Launch Boost Swap Tax (active until $100,000 Market Cap):
+     * - 1.0% Programmable.market Fee (10% of the 10% tax): 50% Auto-Burn (0.50%) + 50% Treasury (0.50%)
+     * - 3.5% Hourly Stream (35% of the 10% tax): 35% Top 10 Volume (1.225%), 35% Cashback (1.225%), 30% Stakers Real Yield (1.05%)
+     * - 3.5% Dual Lottery Engine (35% of the 10% tax): 50% Daily 24h VRF Draw (1.75%), 50% Sunday Mega-Jackpot (1.75%)
+     * - 2.0% Protocol & Deflation (20% of the 10% tax): 90% Gas/Infra/Marketing (1.80%), 10% Hourly Batched Buyback & Burn (0.20%)
+     */
+    function _distributeLaunchSwapFees(uint256 feeAmount, address trader) internal {
+        // 1. Programmable.market Fee (1.0% of swap = 10% of the 10% feeAmount)
+        uint256 progFee = (feeAmount * 10) / 100;
+        if (programmableFeeRecipient != address(0) && progFee > 0) {
+            (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
+            if (!success) {
+                programmableFeePot += progFee;
+                emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
+            } else {
+                emit ProgrammableFeeTransferred(programmableFeeRecipient, progFee);
+            }
+        } else {
+            programmableFeePot += progFee;
+        }
+
+        // 2. Hourly Reward Pot (3.5% of swap = 35% of the 10% feeAmount):
+        // Split 35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH
+        uint256 hourlyTotal = (feeAmount * 35) / 100;
+        uint256 stakingShare = (hourlyTotal * 30) / 100;
+        uint256 cashbackShare = (hourlyTotal * 35) / 100;
+        uint256 top10Share = hourlyTotal - stakingShare - cashbackShare;
+
+        if (stakingShare > 0 && address(stakingContract) != address(0)) {
+            stakingContract.distributeYield{value: stakingShare}();
+        }
+
+        hourlyRewardPot += top10Share;
+
+        uint256 currentHour = block.timestamp / 1 hours;
+        hourlyPotByHour[currentHour] += top10Share;
+        userCashbackPerHour[currentHour][trader] += cashbackShare;
+        if (!traderRecordedPerHour[currentHour][trader]) {
+            traderRecordedPerHour[currentHour][trader] = true;
+            allTradersPerHour[currentHour].push(trader);
+        }
+
+        // 3. Dual Lottery Engine (3.5% of swap = 35% of the 10% feeAmount):
+        // Split 50% Daily 24h Lottery (1.75%), 50% Sunday Mega-Jackpot (1.75%)
+        uint256 lotteryTotal = (feeAmount * 35) / 100;
+        uint256 sundayShare = lotteryTotal / 2;
+        uint256 dailyShare = lotteryTotal - sundayShare;
+        dailyLotteryPot += dailyShare;
+        sundayMegaPot += sundayShare;
+
+        // 4. Protocol & Deflation Pot (2.0% of swap = remainder 20% of the 10% feeAmount):
+        // 90% Protocol & Marketing pot (1.80%), 10% Hourly Batched Buyback & Burn (0.20%)
+        uint256 protocolTotal = feeAmount - progFee - hourlyTotal - lotteryTotal;
         uint256 buybackShare = (protocolTotal * 10) / 100;
         protocolPot += (protocolTotal - buybackShare);
         buybackPot += buybackShare;
@@ -801,7 +883,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             bool sniper = _isSniper(trader);
 
             if (sniper) {
-                // Anti-Snipe: 90% to dev wallet + 1% to Programmable.market = 91% total tax
+                // Initial Launch Guard: 90% to dev wallet + 1% to Programmable.market = 91% total tax
                 uint256 devFee = (swapAmount * 90) / 100;
                 uint256 progFee = (swapAmount * 1) / 100;
                 feeAmount = devFee + progFee;
@@ -811,8 +893,18 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 weth.withdraw(feeAmount);
 
                 _routeAntiSnipeFees(devFee, progFee, trader);
+            } else if (launchTaxEnabled) {
+                // 10.0% Launch Boost Tax (active up to $100k MC: 3.5% Hourly + 3.5% Lottery + 2.0% Protocol + 1.0% Programmable)
+                feeAmount = (swapAmount * 10) / 100;
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _distributeLaunchSwapFees(feeAmount, trader);
             } else {
-                feeAmount = (swapAmount * 4) / 100; // 4.0% Total Swap Tax (1.0% Programmable + 3.0% IRL Ecosystem)
+                // 4.0% Standard Swap Tax (post-$100k MC: 1.0% Programmable + 3.0% IRL Ecosystem)
+                feeAmount = (swapAmount * 4) / 100;
 
                 Currency feeCurrency = Currency.wrap(address(weth));
                 poolManager.take(feeCurrency, address(this), feeAmount);
@@ -854,7 +946,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             }
         }
         
-        // Automatic lift of all limitations at 50k Market Cap
+        // Automatic lift of Max TX / Max Wallet limitations at 50k Market Cap
         if (disableAntiWhaleSqrtPrice > 0) {
             PoolId poolId = key.toId();
             (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
@@ -862,6 +954,24 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             if (reached50k) {
                 limitsEnabled = false;
                 emit LimitsDisabled();
+            }
+        }
+    }
+
+    /**
+     * @dev Automatically disables the 10% Launch Boost Tax (switching to 4% Standard Tax) once $100,000 Market Cap is reached.
+     */
+    function _checkLaunchTaxCutoff(PoolKey calldata key) internal {
+        if (launchTaxEnabled && disableLaunchTaxSqrtPrice > 0) {
+            bool isWeth0 = (Currency.unwrap(key.currency0) == address(weth));
+            PoolId poolId = key.toId();
+            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
+            bool reached100k = isWeth0
+                ? (sqrtPriceX96 <= disableLaunchTaxSqrtPrice)
+                : (sqrtPriceX96 >= disableLaunchTaxSqrtPrice);
+            if (reached100k) {
+                launchTaxEnabled = false;
+                emit LaunchTaxDisabled();
             }
         }
     }
@@ -953,7 +1063,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             uint256 feeAmount;
 
             if (sniper) {
-                // Anti-Snipe: 90% to dev wallet + 1% to Programmable.market = 91% total tax
+                // Initial Launch Guard: 90% to dev wallet + 1% to Programmable.market = 91% total tax
                 uint256 devFee = (absOutput * 90) / 100;
                 uint256 progFee = (absOutput * 1) / 100;
                 feeAmount = devFee + progFee;
@@ -963,7 +1073,17 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 weth.withdraw(feeAmount);
 
                 _routeAntiSnipeFees(devFee, progFee, trader);
+            } else if (launchTaxEnabled) {
+                // 10.0% Launch Boost Tax (active up to $100k MC)
+                feeAmount = (absOutput * 10) / 100;
+
+                Currency feeCurrency = Currency.wrap(address(weth));
+                poolManager.take(feeCurrency, address(this), feeAmount);
+                weth.withdraw(feeAmount);
+
+                _distributeLaunchSwapFees(feeAmount, trader);
             } else {
+                // 4.0% Standard Swap Tax (post-$100k MC)
                 feeAmount = (absOutput * 4) / 100;
 
                 Currency feeCurrency = Currency.wrap(address(weth));
@@ -972,10 +1092,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
 
                 _distributeSwapFees(feeAmount, trader);
             }
-            
+
+            _checkLaunchTaxCutoff(key);
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
         }
 
+        _checkLaunchTaxCutoff(key);
         return (BaseHook.afterSwap.selector, 0);
     }
 

@@ -147,10 +147,11 @@ contract DeployLotteryEcosystem is Script {
         console2.log("Initializing Pool Manager with Market Cap ~20k$...");
         IPoolManager(poolManager).initialize(poolKey, startingPrice);
 
-        // 4. Configure 50k Market Cap Auto-Disable for Anti-Whale & Limits
+        // 4. Configure 50k Market Cap Anti-Whale & 100k Market Cap Launch Boost Tax (10% -> 4%) Cutoffs
         bool isIrl0 = (address(irl) < weth);
         hook.setDisableAntiWhaleFromInitialPrice(startingPrice, isIrl0);
-        console2.log("Configured 50k Market Cap Auto-Disable threshold:", hook.disableAntiWhaleSqrtPrice());
+        console2.log("Configured 50k Market Cap Anti-Whale cutoff:", hook.disableAntiWhaleSqrtPrice());
+        console2.log("Configured 100k Market Cap 10% Launch Tax cutoff:", hook.disableLaunchTaxSqrtPrice());
 
         vm.stopBroadcast();
         

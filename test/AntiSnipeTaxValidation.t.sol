@@ -555,4 +555,97 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         cappedNft.transferFrom(whitelistedTrader, sniper, extraTicketId);
         vm.stopPrank();
     }
+
+    function test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent() public {
+        bool isIrl0 = (address(irl) < address(weth));
+        vm.startPrank(deployer);
+        hook.setDisableAntiWhaleFromInitialPrice(Constants.SQRT_PRICE_1_1, isIrl0);
+        hook.launch();
+        vm.stopPrank();
+
+        assertTrue(hook.launchTaxEnabled(), "10% Launch Boost Tax must be active initially");
+        assertGt(hook.disableLaunchTaxSqrtPrice(), 0, "100k MC threshold must be configured");
+
+        // Fast-forward past the initial launch snipe window
+        vm.warp(hook.launchTimestamp() + 120);
+
+        uint256 hourId = block.timestamp / 1 hours;
+        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+
+        vm.startPrank(sniper);
+        deal(Currency.unwrap(currency0), sniper, 20 ether);
+        deal(Currency.unwrap(currency1), sniper, 20 ether);
+
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 1.0 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(sniper),
+            receiver: sniper,
+            deadline: block.timestamp + 1
+        });
+        vm.stopPrank();
+
+        // Verify 10.0% Launch Boost Tax split on 1.0 WETH swap:
+        // - 3.5% Hourly Pot (0.035 ETH = 0.01225 Top 10 + 0.01225 Cashback + 0.0105 Stakers)
+        // - 3.5% Lottery Pots (1.75% Daily = 0.0175 ETH + 1.75% Sunday = 0.0175 ETH)
+        // - 2.0% Protocol & Buyback Pot (1.8% Protocol = 0.018 ETH + 0.2% Buyback Burn = 0.002 ETH)
+        // - 1.0% Programmable.market (0.01 ETH)
+        assertEq(progRecipient.balance, 0.01 ether, "1.0% Programmable during Launch Boost");
+        assertEq(
+            hook.hourlyPotByHour(hourId) + hook.userCashbackPerHour(hourId, sniper) + address(staking).balance,
+            0.035 ether,
+            "3.5% Hourly Pot during Launch Boost"
+        );
+        assertEq(hook.dailyLotteryPot(), 0.0175 ether, "1.75% Daily Lottery during Launch Boost");
+        assertEq(hook.sundayMegaPot(), 0.0175 ether, "1.75% Sunday Lottery during Launch Boost");
+        assertEq(hook.protocolPot(), 0.018 ether, "1.8% Protocol Pot during Launch Boost");
+        assertEq(hook.buybackPot(), 0.002 ether, "0.2% Buyback Burn Pot during Launch Boost");
+
+        // Simulate reaching 100k Market Cap cutoff
+        (uint160 currentSqrtPrice,,,) = poolManager.getSlot0(poolId);
+        vm.startPrank(deployer);
+        hook.setDisableLaunchTaxPrice(currentSqrtPrice);
+        vm.stopPrank();
+
+        // Execute a small swap that crosses/triggers the 100k MC cutoff
+        vm.startPrank(whitelistedTrader);
+        deal(Currency.unwrap(currency0), whitelistedTrader, 10 ether);
+        deal(Currency.unwrap(currency1), whitelistedTrader, 10 ether);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 0.05 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(whitelistedTrader),
+            receiver: whitelistedTrader,
+            deadline: block.timestamp + 1
+        });
+        vm.stopPrank();
+
+        // Launch Boost Tax is now permanently disabled on-chain
+        assertFalse(hook.launchTaxEnabled(), "10% Launch Tax must auto-disable at 100k MC");
+
+        // Subsequent 1.0 WETH swap must pay the standard 4.0% tax (1% / 1% / 1% / 1%)
+        uint256 dailyBefore = hook.dailyLotteryPot();
+        uint256 protocolBefore = hook.protocolPot();
+        uint256 burnPotBefore = hook.buybackPot();
+
+        vm.startPrank(sniper);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 1.0 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(sniper),
+            receiver: sniper,
+            deadline: block.timestamp + 1
+        });
+        vm.stopPrank();
+
+        assertEq(hook.dailyLotteryPot() - dailyBefore, 0.005 ether, "0.5% Daily Lottery after 100k MC");
+        assertEq(hook.protocolPot() - protocolBefore, 0.009 ether, "0.9% Protocol Pot after 100k MC");
+        assertEq(hook.buybackPot() - burnPotBefore, 0.001 ether, "0.1% Buyback Burn Pot after 100k MC");
+    }
 }
