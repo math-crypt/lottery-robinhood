@@ -71,7 +71,8 @@ contract DeployLotteryEcosystem is Script {
         staking = new IRLStaking(address(irl));
 
         console2.log("Deploying IRLMarketingVault...");
-        address positionManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951; 
+        address positionManager = vm.envOr("POSITION_MANAGER", address(0x4529A01c7A0410167c5740C487A8DE60232617bf));
+        require(positionManager != address(0) && positionManager != poolManager, "Invalid PositionManager address");
         vault = new IRLMarketingVault(poolManager, positionManager, address(irl));
 
         // 2. Mine Hook Address
@@ -110,7 +111,7 @@ contract DeployLotteryEcosystem is Script {
         );
         require(address(hook) == hookAddress, "Hook Address mismatch");
         
-        // Transfer NFT ownership to hook so it can mint
+        // Transfer NFT ownership to hook so it can mint and enforce weekly holding caps
         nft.transferOwnership(address(hook));
 
         // Authorize Hook as OpenVRF consumer

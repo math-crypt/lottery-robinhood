@@ -411,16 +411,16 @@ contract IRLProtocolScenariosTest is BaseTest {
         vm.stopPrank();
         assertEq(alice.balance - aliceEthBefore, pendingYield, "Alice must receive full pending ETH yield");
 
-        // 2. Verify Protocol Buyback & Burn (10% of protocol fees burned to 0xdead)
+        // 2. Verify Protocol Buyback & Burn (10% of protocol fees swapped to $IRL and burned to 0xdead)
         uint256 buybackPot = hook.buybackPot();
         assertTrue(buybackPot > 0, "Buyback pot should have accumulated 10% of protocol share");
 
         address deadAddress = address(0x000000000000000000000000000000000000dEaD);
-        uint256 deadEthBefore = deadAddress.balance;
+        uint256 deadIrlBefore = irl.balanceOf(deadAddress);
         hook.executeBuybackAndBurn();
 
         assertEq(hook.buybackPot(), 0, "Buyback pot must be reset to 0");
-        assertEq(deadAddress.balance - deadEthBefore, buybackPot, "Dead address must receive burned ETH");
+        assertTrue(irl.balanceOf(deadAddress) > deadIrlBefore, "Dead address must receive bought-back & burned $IRL tokens");
     }
 
     /**

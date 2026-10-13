@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+provider.on('error', (err) => console.error('RPC Provider error:', err));
 
 // Contract Addresses
 const HOOK_ADDRESS = process.env.HOOK_ADDRESS;
@@ -80,7 +81,7 @@ bot.on('new_chat_members', (ctx) => {
             `🔔 *Stay connected here* to be notified the exact second the official contract is deployed and liquidity is seeded.\n\n` +
             `Type /about or /tokenomics to discover our audited Robinhood mechanics! 🏹`,
             { parse_mode: 'Markdown' }
-        );
+        ).catch(console.error);
     }
 });
 
@@ -96,18 +97,18 @@ We steal from the whales to give back to the community! $IRL is an innovative De
 - 50% routed to Programmable treasury.
 
 2️⃣ **Strict Daily Lottery & Sunday Mega-Jackpot (1.0% Tax via OpenVRF)**
-Trade $IRL to earn NFT Tickets (0.05 WETH threshold per ticket). 
+Trade $IRL to earn NFT Tickets (0.10 WETH threshold per ticket, boosted up to +50% by staking). 
 - Every midnight, a winner is drawn strictly among tickets minted *that day*.
 - Every Sunday evening, the **Sunday Mega-Jackpot** is drawn among all tickets minted Monday through Sunday!
 
 3️⃣ **Hourly Rewards (1.0% Tax: 35% Top 10 / 35% Cashback / 30% Real Yield Staking)**
-- **35%** to the Top 10 volume traders of the hour.
-- **35%** as instant cashback to all active traders of the hour.
-- **30%** streamed as native ETH Real Yield dividends to all $IRL stakers!
+- **35% Top 10 of the Hour**: Distributed strictly among the Top 10 traders of the hour, boosted by staking volume multipliers (up to +50% at 2% staked: e.g. 0.05 WETH traded = 0.075 WETH score!).
+- **35% Hourly Trader Cashback**: Distributed once per hour to all active traders of that hour (equivalent to a 0.35% ETH cashback on your swap volume).
+- **30% Stakers Real Yield**: Streamed as native ETH dividends across eligible $IRL stakers ranked from 0.1% (1M $IRL) to 2.0% (20M $IRL max tier)!
 
 4️⃣ **Protocol Solvency & Double Deflation (1.0% Tax)**
 - 90% for OpenVRF gas, automated keep-alives, and marketing.
-- 10% dedicated to permanent $IRL Buyback & Burn!
+- 10% dedicated to permanent $IRL Buyback & Burn (automated V4 swap to 0xdead)!
 🔥 *Double Deflation*: Combined with Programmable's 0.50% auto-burn, **0.60% of all swap volume is burned forever**!
 
 5️⃣ **Automated Anti-Whale Protection**
@@ -134,13 +135,13 @@ There is a constant *4.0% tax* on every swap (buys and sells), collected nativel
   • 50% for the **Sunday Mega-Jackpot** (All week tickets).
 
 ⏱️ *1.0% Hourly Redistribution (35/35/30)*:
-  • 35% for the **Top 10 Volume Traders** of the hour.
-  • 35% for **All Active Traders** (Instant hourly cashback).
-  • 30% for **All Stakers** streamed as native ETH Real Yield!
+  • 35% for the **Top 10 Volume Traders** of the hour (boosted up to +50% by staking: 0.05 WETH = 0.075 WETH score at 2% stake).
+  • 35% for **All Active Traders** of the hour (0.35% ETH cashback distributed once per hour).
+  • 30% for **Eligible Stakers (0.1% to 2.0% tiers)** streamed as native ETH Real Yield!
 
 ⚙️ *1.0% Protocol & Deflation*:
   • 90% for OpenVRF gas, automated keep-alives, and marketing.
-  • 10% dedicated to permanent **Buyback & Burn**!
+  • 10% dedicated to permanent **Buyback & Burn** (automated WETH -> $IRL V4 swap to 0xdead)!
 
 🔥 *Double Deflation Flywheel*:
 Total *0.60% of every swap volume is permanently burned* (0.50% auto-burned by Programmable + 0.10% protocol buyback & burn to 0xdead)!
@@ -210,13 +211,13 @@ bot.command('stake', (ctx) => {
     const text = `🏦 *How to Stake $IRL* 🏦
 
 Stake your $IRL tokens in the Real Yield Sanctuary to:
-1️⃣ Earn **Native ETH dividends** from 30% of every hourly swap pot (strictly pro-rata to your share of the pool).
+1️⃣ Earn **Native ETH dividends** from 30% of every hourly swap pot (ranked across eligible stakers from 0.1% [1M $IRL] to 2.0% [20M $IRL] max tier).
 2️⃣ Receive up to **10 Free NFT Tickets** every 4 days progressively (1 ticket per 2M $IRL staked every 4 days).
-3️⃣ Get up to a **+50% (1.5x) Multiplier** on your trading volume for both the hourly leaderboard AND ticket minting (e.g. 0.075 ETH + 50% = 0.1125 ETH >= 0.10 ETH threshold -> 1 ticket!).
+3️⃣ Get up to a **+50% (1.5x) Multiplier** on your trading volume for both the Top 10 hourly leaderboard AND ticket minting (e.g. at 2% staked, 0.05 WETH traded counts as 0.075 WETH volume; 0.075 WETH counts as 0.1125 WETH >= 0.10 WETH -> 1 ticket!).
 4️⃣ Increase your **Daily Volume Limit up to 10 tickets/day** (vs 6 for non-stakers), completely separate from your free 4-day tickets!
-5️⃣ Expand your **Marketplace & Holding Caps** up to 10 daily / 70 weekly tickets (vs 6 daily / 42 weekly for non-stakers)!
+5️⃣ Expand your **Marketplace & Holding Caps** up to 10 daily / 70 weekly tickets (vs 6 daily / 42 weekly for non-stakers), enforced directly on-chain!
 
-_Unlock the maximum bonuses by staking the full 2.0% supply quota (20M $IRL). No lockups, instant unstake anytime!_`;
+_Unlock the maximum bonuses by staking the full 2.0% supply quota (20M $IRL). Protected by a 24h anti-flash-loan cooldown after staking!_`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 

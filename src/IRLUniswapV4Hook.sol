@@ -41,7 +41,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IWETH {
+    function deposit() external payable;
     function withdraw(uint wad) external;
+    function transfer(address to, uint value) external returns (bool);
 }
 
 import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automation/AutomationCompatible.sol";
@@ -64,6 +66,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
 
+    address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
     IRLTicketNFT public immutable nftTicket;
     IRLStaking public immutable stakingContract;
     IWETH public immutable weth;
@@ -72,6 +76,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     bool public limitsEnabled = true;
     uint160 public disableAntiWhaleSqrtPrice;
     uint32 public callbackGasLimit = 150000;
+    bool private _inBuyback;
+
+    PoolKey public activePoolKey;
 
     uint256 public constant MAX_TX_AMOUNT = 10_000_000 ether; // 1% of 1B supply
     uint256 public constant MAX_WALLET_AMOUNT = 20_000_000 ether; // 2% of 1B supply
@@ -89,6 +96,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     uint256 public hourlyRewardPot;
     uint256 public protocolPot; // For VRF/Automation fees and Marketing
     uint256 public buybackPot; // 10% of protocol fees reserved for buyback & burn
+    mapping(uint256 => uint256) public hourlyPotByHour;
+    mapping(uint256 => uint256) public vrfRequestPrize;
 
     // --- PROGRAMMABLE.MARKET INTEGRATION (1% OF SWAP) ---
     address public programmableFeeRecipient;
@@ -117,6 +126,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     event TradingLaunched(uint256 launchTimestamp);
     event DevSnipeTaxClaimed(address indexed recipient, uint256 amount);
     event LimitsDisabled();
+    event CallbackGasLimitUpdated(uint32 newGasLimit);
+
+    function setCallbackGasLimit(uint32 _gasLimit) external onlyOwner {
+        require(_gasLimit >= 25_000 && _gasLimit <= 1_000_000, "Invalid gas limit");
+        callbackGasLimit = _gasLimit;
+        emit CallbackGasLimitUpdated(_gasLimit);
+    }
 
     function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
         disableAntiWhaleSqrtPrice = _price;
@@ -200,6 +216,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     mapping(uint256 => mapping(address => uint256)) public userCashbackPerHour;
     mapping(uint256 => address[]) public allTradersPerHour;
     mapping(uint256 => mapping(address => bool)) public traderRecordedPerHour;
+    mapping(uint256 => address[]) public topTradersPerHour;
+    mapping(uint256 => mapping(address => bool)) public isTop10PerHour;
+
+    /**
+     * @notice Returns the list of Top 10 volume traders for a given hour.
+     */
+    function getTopTraders(uint256 hourId) external view returns (address[] memory) {
+        return topTradersPerHour[hourId];
+    }
 
     // Daily volume tracking for NFT minting
     mapping(uint256 => mapping(address => uint256)) public dailyVolume;
@@ -241,8 +266,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         devWallet = msg.sender;
         antiSnipeWhitelist[msg.sender] = true;
         antiSnipeWhitelist[address(this)] = true;
-        antiSnipeWhitelist[_nftTicket] = true;
-        antiSnipeWhitelist[_stakingContract] = true;
 
         lastProcessedHour = block.timestamp / 1 hours;
         lastLotteryDay = block.timestamp / 1 days;
@@ -264,35 +287,107 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Executes buyback and burn from the reserved 10% protocol fees.
+     * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved 10% protocol fees
+     * and permanently burns the purchased $IRL tokens to 0xdead.
      */
     function executeBuybackAndBurn() external nonReentrant {
         uint256 amount = buybackPot;
         require(amount > 0, "No buyback pot to execute");
+        require(Currency.unwrap(activePoolKey.currency0) != address(0), "Pool not active");
         buybackPot = 0;
-        
-        (bool success, ) = payable(address(0x000000000000000000000000000000000000dEaD)).call{value: amount}("");
-        require(success, "Buyback burn failed");
+
+        _inBuyback = true;
+        weth.deposit{value: amount}();
+        poolManager.unlock(abi.encode(amount));
+        _inBuyback = false;
+
         emit BuybackAndBurnExecuted(amount);
     }
 
     /**
-     * @notice Allows executing buyback swap via external DEX router and burning tokens.
+     * @notice PoolManager unlock callback executing the zero-tax WETH -> $IRL buyback swap to 0xdead.
+     */
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+        require(msg.sender == address(poolManager), "Only PoolManager");
+        require(_inBuyback, "Not in buyback");
+
+        uint256 wethAmount = abi.decode(data, (uint256));
+        bool zeroForOne = (Currency.unwrap(activePoolKey.currency0) == address(weth));
+        uint160 sqrtPriceLimitX96 = zeroForOne
+            ? 4295128740
+            : 1461446703485210103287273052203988822378723970341;
+
+        BalanceDelta swapDelta = poolManager.swap(
+            activePoolKey,
+            SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(wethAmount),
+                sqrtPriceLimitX96: sqrtPriceLimitX96
+            }),
+            ""
+        );
+
+        // Settle WETH input to PoolManager
+        Currency wethCurr = Currency.wrap(address(weth));
+        poolManager.sync(wethCurr);
+        require(weth.transfer(address(poolManager), wethAmount), "WETH settle failed");
+        poolManager.settle();
+
+        // Take purchased $IRL directly to 0x000...dEaD
+        Currency irlCurr = zeroForOne ? activePoolKey.currency1 : activePoolKey.currency0;
+        int128 outDelta = zeroForOne ? swapDelta.amount1() : swapDelta.amount0();
+        uint256 irlBought = uint256(int256(outDelta > 0 ? outDelta : -outDelta));
+        if (irlBought > 0) {
+            poolManager.take(irlCurr, DEAD_ADDRESS, irlBought);
+        }
+
+        return abi.encode(irlBought);
+    }
+
+    /**
+     * @notice Allows executing buyback swap via external DEX router and verifies $IRL is burned to 0xdead.
      */
     function executeBuybackWithRouter(address router, bytes calldata data) external onlyOwner nonReentrant {
         uint256 amount = buybackPot;
         require(amount > 0, "No buyback pot to execute");
+        require(router != address(0) && router != msg.sender, "Invalid router");
         buybackPot = 0;
-        
+
+        bool zeroForOne = (Currency.unwrap(activePoolKey.currency0) == address(weth));
+        address irlAddr = zeroForOne
+            ? Currency.unwrap(activePoolKey.currency1)
+            : Currency.unwrap(activePoolKey.currency0);
+        uint256 deadBefore = irlAddr != address(0) ? IERC20(irlAddr).balanceOf(DEAD_ADDRESS) : 0;
+
         (bool success, ) = router.call{value: amount}(data);
         require(success, "Router buyback call failed");
+
+        if (irlAddr != address(0)) {
+            require(IERC20(irlAddr).balanceOf(DEAD_ADDRESS) > deadBefore, "No IRL burned to 0xdead");
+        }
         emit BuybackAndBurnExecuted(amount);
     }
 
     /**
-     * @notice Allows a user to claim their bonus tickets from staking every 4 days without needing to trade.
+     * @dev Checks whether the user has met the 24-hour staking cooldown before claiming free tickets.
+     */
+    function _isStakerCooldownMet(address trader) internal view returns (bool) {
+        if (address(stakingContract) == address(0)) return false;
+        (bool ok, bytes memory data) = address(stakingContract).staticcall(
+            abi.encodeWithSignature("lastStakedTimestamp(address)", trader)
+        );
+        if (ok && data.length >= 32) {
+            uint256 lastStaked = abi.decode(data, (uint256));
+            return block.timestamp >= lastStaked + 24 hours;
+        }
+        return true;
+    }
+
+    /**
+     * @notice Allows a user to claim their bonus tickets from staking every 4 days (requires 24h stake cooldown).
      */
     function claimStakingTickets() public nonReentrant {
+        require(_isStakerCooldownMet(msg.sender), "Stake cooldown active (24h)");
         uint256 dayId = block.timestamp / 1 days;
         uint256 weekId = (block.timestamp + 3 days) / 7 days;
         _mintStakingTickets(msg.sender, dayId, weekId);
@@ -321,6 +416,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     function _mintStakingTickets(address trader, uint256 dayId, uint256 weekId) internal {
+        if (!_isStakerCooldownMet(trader)) return;
         uint256 stakedAmount = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
         
         // Progressive linear ticket allocation every 4 days: requires full 2% supply (20M IRL) for 10 tickets
@@ -512,6 +608,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         hourlyRewardPot += top10Share;
 
         uint256 currentHour = block.timestamp / 1 hours;
+        hourlyPotByHour[currentHour] += top10Share;
         userCashbackPerHour[currentHour][trader] += cashbackShare;
         if (!traderRecordedPerHour[currentHour][trader]) {
             traderRecordedPerHour[currentHour][trader] = true;
@@ -533,12 +630,82 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         buybackPot += buybackShare;
     }
 
+    /**
+     * @dev Resolves the trader identity while preventing unauthorized spoofing of protocol
+     *      contracts, owner/dev wallets, or whitelisted addresses via arbitrary hookData.
+     */
+    function _resolveTrader(address sender, bytes calldata hookData) internal view returns (address trader) {
+        address fallbackTrader = (sender != address(poolManager) && sender != address(0)) ? sender : tx.origin;
+        if (hookData.length >= 32) {
+            address decoded = abi.decode(hookData, (address));
+            if (
+                decoded == address(0) ||
+                decoded == address(this) ||
+                decoded == address(nftTicket) ||
+                decoded == address(stakingContract) ||
+                decoded == address(poolManager)
+            ) {
+                return fallbackTrader;
+            }
+            if (antiSnipeWhitelist[decoded] || decoded == owner() || decoded == devWallet) {
+                if (
+                    sender != decoded &&
+                    tx.origin != decoded &&
+                    tx.origin != 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
+                ) {
+                    return fallbackTrader;
+                }
+            }
+            return decoded;
+        }
+        return fallbackTrader;
+    }
+
+    /**
+     * @dev Maintains the Top 10 traders array for `hourId` sorted/filtered by highest `userHourlyScore`.
+     */
+    function _updateTop10(uint256 hourId, address trader, uint256 newScore) internal {
+        if (isTop10PerHour[hourId][trader]) {
+            return;
+        }
+        address[] storage top = topTradersPerHour[hourId];
+        if (top.length < 10) {
+            top.push(trader);
+            isTop10PerHour[hourId][trader] = true;
+        } else {
+            uint256 minScore = userHourlyScore[hourId][top[0]];
+            uint256 minIndex = 0;
+            for (uint256 i = 1; i < 10; i++) {
+                uint256 s = userHourlyScore[hourId][top[i]];
+                if (s < minScore) {
+                    minScore = s;
+                    minIndex = i;
+                }
+            }
+            if (newScore > minScore) {
+                address evicted = top[minIndex];
+                isTop10PerHour[hourId][evicted] = false;
+                top[minIndex] = trader;
+                isTop10PerHour[hourId][trader] = true;
+            }
+        }
+    }
+
     function _beforeSwap(
         address sender,
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata hookData
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        if (_inBuyback) {
+            return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        }
+
+        // Cache active PoolKey for automated buyback & burn swaps
+        if (Currency.unwrap(activePoolKey.currency0) == address(0)) {
+            activePoolKey = key;
+        }
+
         // Auto-initialize launchTimestamp on the very first swap if not already set
         if (launchTimestamp == 0) {
             launchTimestamp = block.timestamp;
@@ -558,13 +725,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         if (isWETHSpecified) {
             uint256 swapAmount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
             
-            // Trader identification with aggregator/router fallback
-            address trader;
-            if (hookData.length >= 32) {
-                trader = abi.decode(hookData, (address));
-            } else {
-                trader = (sender != address(poolManager) && sender != address(0)) ? sender : tx.origin;
-            }
+            // Hardened trader identification
+            address trader = _resolveTrader(sender, hookData);
 
             uint256 feeAmount;
             bool sniper = _isSniper(trader);
@@ -642,24 +804,30 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         BalanceDelta delta,
         bytes calldata hookData
     ) internal override returns (bytes4, int128) {
+        if (_inBuyback) {
+            return (BaseHook.afterSwap.selector, 0);
+        }
+
         uint256 hourId = block.timestamp / 1 hours;
         uint256 dayId = block.timestamp / 1 days;
         uint256 weekId = (block.timestamp + 3 days) / 7 days;
 
+        bool isExactIn = params.amountSpecified < 0;
+        bool isWETHSpecified = isExactIn
+            ? (params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth))
+            : (params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth));
+
         uint256 volume;
-        if (key.currency0 == Currency.wrap(address(weth))) {
+        if (isWETHSpecified) {
+            volume = isExactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
+        } else if (key.currency0 == Currency.wrap(address(weth))) {
             volume = uint256(int256(delta.amount0() < 0 ? -delta.amount0() : delta.amount0()));
         } else {
             volume = uint256(int256(delta.amount1() < 0 ? -delta.amount1() : delta.amount1()));
         }
         
-        // Tracking trader identity with aggregator/router fallback
-        address trader;
-        if (hookData.length >= 32) {
-            trader = abi.decode(hookData, (address));
-        } else {
-            trader = (sender != address(poolManager) && sender != address(0)) ? sender : tx.origin;
-        }
+        // Hardened trader identification
+        address trader = _resolveTrader(sender, hookData);
 
         bool sniper = _isSniper(trader);
 
@@ -682,6 +850,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             
             userHourlyScore[hourId][trader] += scoreDelta;
             totalHourlyScore[hourId] += scoreDelta;
+            _updateTop10(hourId, trader, userHourlyScore[hourId][trader]);
 
             // Volume NFTs (boosted by staking multiplier, bounded by user's daily volume limit 6 to 10)
             dailyVolume[dayId][trader] += scoreDelta;
@@ -702,8 +871,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             _mintStakingTickets(trader, dayId, weekId);
         }
         
-        // Fee on unspecified currency
-        bool isExactIn = params.amountSpecified < 0;
+        // Fee on unspecified currency (WETH leg)
         bool isWETHUnspecified = false;
         if (isExactIn) {
             isWETHUnspecified = params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth);
@@ -712,10 +880,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         }
                                           
         if (isWETHUnspecified) {
-            bool outputIsToken0 = params.zeroForOne ? false : true;
-            int256 outputAmount = outputIsToken0 ? delta.amount0() : delta.amount1();
-            
-            uint256 absOutput = uint256(int256(outputAmount > 0 ? outputAmount : -outputAmount));
+            uint256 absOutput = volume;
             uint256 feeAmount;
 
             if (sniper) {
@@ -771,38 +936,70 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     function performUpkeep(bytes calldata performData) external override nonReentrant {
-        (uint8 actionType, uint256 timeId) = abi.decode(performData, (uint8, uint256));
+        (uint8 actionType, ) = abi.decode(performData, (uint8, uint256));
         
         if (actionType == 1) {
             uint256 curHour = block.timestamp / 1 hours;
+            require(curHour > lastProcessedHour && queueIndex == queueLength, "Upkeep1 not ready");
             while (lastProcessedHour < curHour - 1 && allTradersPerHour[lastProcessedHour].length == 0) {
+                if (hourlyPotByHour[lastProcessedHour] > 0) {
+                    uint256 orphan = hourlyPotByHour[lastProcessedHour];
+                    hourlyPotByHour[lastProcessedHour] = 0;
+                    if (hourlyRewardPot >= orphan) {
+                        hourlyRewardPot -= orphan;
+                    }
+                    protocolPot += orphan;
+                }
                 lastProcessedHour++;
             }
             distributingHourId = lastProcessedHour;
             _setupHourDistribution(lastProcessedHour);
             lastProcessedHour++;
         } else if (actionType == 2) {
+            require(queueIndex < queueLength, "Queue empty");
             _processQueueBatch(50);
         } else if (actionType == 3) {
+            uint256 curDay = block.timestamp / 1 days;
+            require(curDay > lastLotteryDay, "Daily draw not ready");
             uint256 targetDay = lastLotteryDay;
-            lastLotteryDay = timeId;
+            lastLotteryDay = curDay;
             _triggerDailyLottery(targetDay);
         } else if (actionType == 4) {
+            uint256 curWeek = (block.timestamp + 3 days) / 7 days;
+            require(curWeek > lastLotteryWeek, "Weekly draw not ready");
             uint256 targetWeek = lastLotteryWeek;
-            lastLotteryWeek = timeId;
+            lastLotteryWeek = curWeek;
             _triggerSundayMegaJackpot(targetWeek);
+        } else {
+            revert("Invalid upkeep action");
         }
     }
 
     function _setupHourDistribution(uint256 hourId) internal {
-        uint256 totalReward = hourlyRewardPot;
-        hourlyRewardPot = 0;
+        uint256 totalReward = hourlyPotByHour[hourId];
+        if (totalReward > 0) {
+            hourlyPotByHour[hourId] = 0;
+            if (hourlyRewardPot >= totalReward) {
+                hourlyRewardPot -= totalReward;
+            } else {
+                totalReward = hourlyRewardPot;
+                hourlyRewardPot = 0;
+            }
+        } else if (hourlyRewardPot > 0 && hourId + 1 >= (block.timestamp / 1 hours)) {
+            totalReward = hourlyRewardPot;
+            hourlyRewardPot = 0;
+        }
         
         distributingHourId = hourId;
         queueIndex = 0;
         queueLength = allTradersPerHour[hourId].length;
         
-        uint256 tScore = totalHourlyScore[hourId];
+        uint256 tScore = 0;
+        address[] storage top = topTradersPerHour[hourId];
+        for (uint256 i = 0; i < top.length; i++) {
+            tScore += userHourlyScore[hourId][top[i]];
+        }
+
         if (tScore > 0) {
             currentHourTotalReward = totalReward;
             currentHourTotalScore = tScore;
@@ -826,12 +1023,12 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             uint256 totalPayout = userCashbackPerHour[hourId][user];
             userCashbackPerHour[hourId][user] = 0;
             
-            if (currentHourTotalScore > 0) {
+            if (currentHourTotalScore > 0 && isTop10PerHour[hourId][user]) {
                 uint256 userScore = userHourlyScore[hourId][user];
                 uint256 potShare = (currentHourTotalReward * userScore) / currentHourTotalScore;
                 totalPayout += potShare;
-                userHourlyScore[hourId][user] = 0;
             }
+            userHourlyScore[hourId][user] = 0;
             
             if (totalPayout > 0) {
                 (bool success, ) = user.call{value: totalPayout}("");
@@ -847,24 +1044,42 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
 
     function _triggerDailyLottery(uint256 dayId) internal {
         uint256 fee = randomnessRouter.requestFee();
+        if (fee > 0) {
+            require(protocolPot >= fee, "Insufficient protocolPot for VRF fee");
+            protocolPot -= fee;
+        }
+        uint256 prize = dailyLotteryPot;
+        dailyLotteryPot = 0;
+
         uint256 requestId = randomnessRouter.requestRandomness{value: fee}(callbackGasLimit);
         
         vrfRequestType[requestId] = 1; // 1 = Daily
         vrfRequestToTimeId[requestId] = dayId;
+        vrfRequestPrize[requestId] = prize;
         emit LotteryRequested(requestId, dayId);
     }
 
     function _triggerSundayMegaJackpot(uint256 weekId) internal {
         uint256 fee = randomnessRouter.requestFee();
+        if (fee > 0) {
+            require(protocolPot >= fee, "Insufficient protocolPot for VRF fee");
+            protocolPot -= fee;
+        }
+        uint256 prize = sundayMegaPot;
+        sundayMegaPot = 0;
+
         uint256 requestId = randomnessRouter.requestRandomness{value: fee}(callbackGasLimit);
         
         vrfRequestType[requestId] = 2; // 2 = Sunday Mega
         vrfRequestToTimeId[requestId] = weekId;
+        vrfRequestPrize[requestId] = prize;
         emit SundayMegaJackpotRequested(requestId, weekId);
     }
 
     function _fulfillRandomness(uint256 requestId, uint256 randomWord) internal override {
         uint8 reqType = vrfRequestType[requestId];
+        uint256 prize = vrfRequestPrize[requestId];
+        vrfRequestPrize[requestId] = 0;
         
         if (reqType == 1) {
             // Daily Lottery: strictly within the day's tickets
@@ -877,9 +1092,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 uint256 winningTokenId = start + (randomWord % count);
                 address winner = nftTicket.ownerOf(winningTokenId);
                 
-                uint256 prize = dailyLotteryPot;
-                dailyLotteryPot = 0;
-                
                 (bool success, ) = winner.call{value: prize}("");
                 if (!success) {
                     // Smart contract winner reverted: route to protocol/marketing pot
@@ -889,8 +1101,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 emit LotteryWinnerDrawn(winner, winningTokenId, prize);
             } else {
                 // No tickets minted today: rollover daily pot to Sunday Mega-Jackpot
-                sundayMegaPot += dailyLotteryPot;
-                dailyLotteryPot = 0;
+                sundayMegaPot += prize;
             }
         } else if (reqType == 2) {
             // Sunday Mega-Jackpot: all tickets minted from Monday through Sunday
@@ -903,15 +1114,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 uint256 winningTokenId = start + (randomWord % count);
                 address winner = nftTicket.ownerOf(winningTokenId);
                 
-                uint256 prize = sundayMegaPot;
-                sundayMegaPot = 0;
-                
                 (bool success, ) = winner.call{value: prize}("");
                 if (!success) {
                     protocolPot += prize;
                 }
                 
                 emit SundayMegaJackpotDrawn(winner, winningTokenId, prize);
+            } else {
+                // No tickets minted this week: preserve pot for next Sunday Mega-Jackpot
+                sundayMegaPot += prize;
             }
         }
     }

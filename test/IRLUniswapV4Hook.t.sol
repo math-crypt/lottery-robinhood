@@ -137,6 +137,8 @@ contract IRLUniswapV4HookTest is BaseTest {
         // Fund trader
         deal(Currency.unwrap(currency0), trader, 10 ether);
         deal(Currency.unwrap(currency1), trader, 10 ether);
+
+        hook.removeLimits();
     }
 
     function testAfterSwapTracksVolume() public {

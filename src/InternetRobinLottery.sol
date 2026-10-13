@@ -26,10 +26,10 @@ contract InternetRobinLottery is ERC20, Ownable {
      * 
      * Telegram: t.me/InternetRobinhoodLottery
      * GitHub: https://github.com/math-crypt/lottery-robinhood
-     * Website: None (Phase 1 is 100% On-Chain)
-     * Twitter: None (Phase 1 is Community Driven)
+     * Website: https://irlprotocol.xyz
+     * X (Twitter): https://x.com/IRL_Protocol
      */
-    string public constant SOCIALS = "Telegram: t.me/InternetRobinhoodLottery | GitHub: https://github.com/math-crypt/lottery-robinhood";
+    string public constant SOCIALS = "Website: https://irlprotocol.xyz | X: https://x.com/IRL_Protocol | Telegram: t.me/InternetRobinhoodLottery | GitHub: https://github.com/math-crypt/lottery-robinhood";
     string public constant LOGO_URL = "https://raw.githubusercontent.com/math-crypt/lottery-robinhood/main/assets/logo.jpg";
     /**
      * @notice Mints the total supply to the owner upon deployment.

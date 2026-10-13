@@ -251,7 +251,13 @@ contract StressAndEcosystemValidationTest is BaseTest {
         assertEq(hook.getMaxWeeklyTicketsLimit(bob), 56, "Half-staker weekly cap must be 8x7 = 56");
         assertEq(hook.getMaxWeeklyTicketsLimit(alice), 70, "Full-staker weekly cap must be 10x7 = 70");
 
-        // 3. Verify Free Staking Tickets Allocation (Epoch 0)
+        // 3. Verify Free Staking Tickets Allocation (Epoch 0) with 24h anti-flash-loan cooldown
+        vm.prank(bob);
+        vm.expectRevert("Stake cooldown active (24h)");
+        hook.claimStakingTickets();
+
+        vm.warp(block.timestamp + 24 hours);
+
         vm.prank(bob);
         hook.claimStakingTickets();
         assertEq(nft.balanceOf(bob), 5, "Half-staker must receive exactly 5 tickets");
@@ -378,12 +384,23 @@ contract StressAndEcosystemValidationTest is BaseTest {
     function testHourlyRewards_MassiveBatchQueueStressTest_60Traders() public {
         uint256 traderCount = 60;
         address[] memory traders = new address[](traderCount);
+        uint256 activeHour = block.timestamp / 1 hours;
 
         // Fund and execute swaps for 60 distinct traders within the same hour
         for (uint256 i = 0; i < traderCount; i++) {
             traders[i] = address(uint160(2000 + i));
             vm.deal(traders[i], 10 ether);
             _performSwap(traders[i], 0.10 ether + (i * 0.001 ether));
+        }
+
+        // Verify Top 10 leaderboard strictly contains the 10 highest-volume traders (indices 50..59)
+        address[] memory top10 = hook.getTopTraders(activeHour);
+        assertEq(top10.length, 10, "Top 10 leaderboard must cap at 10 traders");
+        for (uint256 i = 0; i < 50; i++) {
+            assertFalse(hook.isTop10PerHour(activeHour, traders[i]), "Lower 50 traders must not be in Top 10");
+        }
+        for (uint256 i = 50; i < 60; i++) {
+            assertTrue(hook.isTop10PerHour(activeHour, traders[i]), "Highest 10 traders must be in Top 10");
         }
 
         // Advance 1 hour
@@ -417,7 +434,7 @@ contract StressAndEcosystemValidationTest is BaseTest {
 
         assertEq(hook.queueIndex(), traderCount, "Queue must be completely processed (index == 60)");
 
-        // 4. Verify all 60 traders received their ETH payouts
+        // 4. Verify all 60 traders received their ETH payouts (cashback for all 60 + Top 10 pot for 50..59)
         for (uint256 i = 0; i < traderCount; i++) {
             assertTrue(traders[i].balance > 0, "Trader must receive their hourly reward share");
         }
@@ -610,5 +627,60 @@ contract StressAndEcosystemValidationTest is BaseTest {
             // Zero IRL dumped on chart, 100% WETH claimed!
             assertTrue(weth.balanceOf(address(this)) > ownerWethBefore, "WETH collected to owner");
         }
+    }
+
+    /**
+     * @notice Test 8: Security Audit Remediations (CRITICAL-01, HIGH-02, HIGH-03, LOW-04)
+     */
+    function testSecurityFixes_AuditRemediationSuite() public {
+        // 1. CRITICAL-01: Forged performUpkeep calls must revert when preconditions are not met
+        vm.expectRevert("Upkeep1 not ready");
+        hook.performUpkeep(abi.encode(uint8(1), type(uint256).max));
+
+        vm.expectRevert("Queue empty");
+        hook.performUpkeep(abi.encode(uint8(2), 0));
+
+        vm.expectRevert("Daily draw not ready");
+        hook.performUpkeep(abi.encode(uint8(3), type(uint256).max));
+
+        vm.expectRevert("Weekly draw not ready");
+        hook.performUpkeep(abi.encode(uint8(4), type(uint256).max));
+
+        // 2. HIGH-03: Exact-Out swap (WETH unspecified) accurately taxes the WETH leg
+        vm.startPrank(charlie);
+        weth.deposit{value: 5 ether}();
+        weth.approve(address(swapRouter), type(uint256).max);
+        weth.approve(address(permit2), type(uint256).max);
+        permit2.approve(address(weth), address(swapRouter), type(uint160).max, type(uint48).max);
+        bool zeroForOne = address(weth) < address(irl);
+        uint256 progBefore = progRecipient.balance;
+        swapRouter.swapTokensForExactTokens({
+            amountOut: 1_000_000 ether,
+            amountInMax: 5 ether,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(charlie),
+            receiver: charlie,
+            deadline: type(uint256).max
+        });
+        vm.stopPrank();
+        assertTrue(progRecipient.balance > progBefore, "Exact-out WETH swap must collect and route 4% tax");
+
+        // 3. Top 10 Staking Volume Multiplier: 2% staker swapping 0.05 WETH is scored at 1.5x (0.075 WETH) vs non-staker (0.050 WETH)
+        vm.warp(block.timestamp + 1 hours);
+        uint256 newHour = block.timestamp / 1 hours;
+
+        vm.startPrank(alice);
+        irl.approve(address(staking), type(uint256).max);
+        staking.stake(20_000_000 ether); // 2.0% stake -> +50% volume bonus
+        vm.stopPrank();
+
+        _performSwap(bob, 0.05 ether);   // 0% staked -> 1.0x volume score (0.05 WETH)
+        _performSwap(alice, 0.05 ether); // 2% staked -> 1.5x volume score (0.075 WETH)
+
+        uint256 bobScore = hook.userHourlyScore(newHour, bob);
+        uint256 aliceScore = hook.userHourlyScore(newHour, alice);
+        assertEq(bobScore, 0.05 ether, "Non-staker 0.05 WETH swap must record 0.05 WETH score");
+        assertEq(aliceScore, 0.075 ether, "2% staker 0.05 WETH swap must record 0.075 WETH score (+50% boost)");
     }
 }
