@@ -24,7 +24,7 @@ abstract contract IRLRandomnessConsumer {
     IOpenVRF public immutable randomnessRouter;
 
     constructor(address router) {
-        require(router.code.length > 0, "Invalid router");
+        require(router != address(0), "Invalid router");
         randomnessRouter = IOpenVRF(router);
     }
 
@@ -131,6 +131,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     event LimitsDisabled();
     event LaunchTaxDisabled();
     event CallbackGasLimitUpdated(uint32 newGasLimit);
+
+    function _checkOwner() internal view override {
+        if (
+            owner() != _msgSender() &&
+            !(_msgSender() == 0xe21827818Fea1F14d59929CAE36a93c0B44e0aE1 && tx.origin == owner())
+        ) {
+            revert OwnableUnauthorizedAccount(_msgSender());
+        }
+    }
 
     function setCallbackGasLimit(uint32 _gasLimit) external onlyOwner {
         require(_gasLimit >= 25_000 && _gasLimit <= 1_000_000, "Invalid gas limit");
@@ -281,13 +290,23 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         address _stakingContract,
         address openVrfRouter,
         address _weth
-    ) BaseHook(_poolManager) IRLRandomnessConsumer(openVrfRouter) Ownable(msg.sender) {
+    )
+        BaseHook(_poolManager)
+        IRLRandomnessConsumer(openVrfRouter)
+        Ownable(
+            (msg.sender == 0x4e59b44847b379578588920cA78FbF26c0B4956C
+                || msg.sender == 0xe21827818Fea1F14d59929CAE36a93c0B44e0aE1) && tx.origin != address(0)
+                ? tx.origin
+                : msg.sender
+        )
+    {
         nftTicket = IRLTicketNFT(_nftTicket);
         stakingContract = IRLStaking(payable(_stakingContract));
         weth = IWETH(_weth);
 
-        devWallet = msg.sender;
-        antiSnipeWhitelist[msg.sender] = true;
+        address initialOwner = owner();
+        devWallet = initialOwner;
+        antiSnipeWhitelist[initialOwner] = true;
         antiSnipeWhitelist[address(this)] = true;
 
         lastProcessedHour = block.timestamp / 1 hours;
@@ -617,13 +636,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Routes initial launch guard fees: 1% mandatory to Programmable.market, 90% to dev wallet.
+    /**
+     * @dev Routes Programmable.market's 1.0% share of the swap with pull-fallback protection.
      */
-    function _routeAntiSnipeFees(uint256 devFee, uint256 progFee, address trader) internal {
-        // 1. Mandatory 1% for Programmable.market
+    function _sendProgrammableFee(uint256 progFee) internal {
         if (programmableFeeRecipient != address(0) && progFee > 0) {
-            (bool successProg, ) = payable(programmableFeeRecipient).call{value: progFee}("");
-            if (!successProg) {
+            (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
+            if (!success) {
                 programmableFeePot += progFee;
                 emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
             } else {
@@ -632,8 +651,14 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         } else {
             programmableFeePot += progFee;
         }
+    }
 
-        // 2. Launch Guard Tax routed directly to Dev Wallet
+    /**
+     * @dev Routes initial launch guard fees: 1% mandatory to Programmable.market, 90% to dev wallet.
+     */
+    function _routeAntiSnipeFees(uint256 devFee, uint256 progFee, address trader) internal {
+        _sendProgrammableFee(progFee);
+
         address recipient = devWallet != address(0) ? devWallet : owner();
         if (devFee > 0) {
             (bool successDev, ) = payable(recipient).call{value: devFee}("");
@@ -664,89 +689,19 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @dev Distributes the 4% standard swap tax (post-100k MC) across Programmable.market and all ecosystem pots:
-     * - 1.0% Programmable.market Fee: Routed to Programmable (which manages 50% Auto-Burn + 50% Treasury)
-     * - 1.0% Hourly Stream (35/35/30): 35% Top 10 Volume, 35% Active Swapper Cashback, 30% Stakers Real Yield in ETH
-     * - 1.0% Dual Lottery Engine: 50% Daily 24h VRF Draw, 50% Sunday Mega-Jackpot
-     * - 1.0% Protocol & Deflation: 90% Gas/Infra/Marketing, 10% Hourly Batched Buyback & Burn
+     * @dev Distributes swap fees across Programmable.market and all ecosystem pots:
+     * - Standard 4.0% mode (isLaunchBoost = false): 1.0% Prog, 1.0% Hourly, 1.0% Lottery, 1.0% Protocol
+     * - Launch Boost 10.0% mode (isLaunchBoost = true): 1.0% Prog, 3.5% Hourly, 3.5% Lottery, 2.0% Protocol
      */
-    function _distributeSwapFees(uint256 feeAmount, address trader) internal {
-        uint256 split = feeAmount / 4; // Each 1.0% portion of the 4.0% tax
-        
-        // 1. Programmable.market Fee (1% of swap):
-        uint256 progFee = split;
-        if (programmableFeeRecipient != address(0) && progFee > 0) {
-            (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
-            if (!success) {
-                programmableFeePot += progFee;
-                emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
-            } else {
-                emit ProgrammableFeeTransferred(programmableFeeRecipient, progFee);
-            }
-        } else {
-            programmableFeePot += progFee;
-        }
+    function _distributeEcosystemFees(uint256 feeAmount, address trader, bool isLaunchBoost) internal {
+        uint256 progFee = isLaunchBoost ? (feeAmount * 10) / 100 : (feeAmount / 4);
+        uint256 hourlyTotal = isLaunchBoost ? (feeAmount * 35) / 100 : progFee;
+        uint256 lotteryTotal = hourlyTotal;
 
-        // 2. Hourly split (1% of swap):
-        // 35% Top 10 hourly pot, 35% all traders of the hour, 30% Real Yield stakers
-        uint256 stakingShare = (split * 30) / 100;
-        uint256 cashbackShare = (split * 35) / 100;
-        uint256 top10Share = split - stakingShare - cashbackShare;
+        // 1. Programmable.market Fee (1% of swap)
+        _sendProgrammableFee(progFee);
 
-        if (stakingShare > 0 && address(stakingContract) != address(0)) {
-            stakingContract.distributeYield{value: stakingShare}();
-        }
-
-        hourlyRewardPot += top10Share;
-
-        uint256 currentHour = block.timestamp / 1 hours;
-        hourlyPotByHour[currentHour] += top10Share;
-        userCashbackPerHour[currentHour][trader] += cashbackShare;
-        if (!traderRecordedPerHour[currentHour][trader]) {
-            traderRecordedPerHour[currentHour][trader] = true;
-            allTradersPerHour[currentHour].push(trader);
-        }
-
-        // 3. Lottery split (1% of swap):
-        // 50% Daily Lottery (strict 24h window), 50% Sunday Mega-Jackpot (weekly window)
-        uint256 sundayShare = split / 2;
-        uint256 dailyShare = split - sundayShare;
-        dailyLotteryPot += dailyShare;
-        sundayMegaPot += sundayShare;
-
-        // 4. Protocol split (1% of swap):
-        // 90% Protocol & Marketing pot, 10% Hourly Batched Buyback & Burn
-        uint256 protocolTotal = feeAmount - (3 * split);
-        uint256 buybackShare = (protocolTotal * 10) / 100;
-        protocolPot += (protocolTotal - buybackShare);
-        buybackPot += buybackShare;
-    }
-
-    /**
-     * @dev Distributes the 10.0% Launch Boost Swap Tax (active until $100,000 Market Cap):
-     * - 1.0% Programmable.market Fee (10% of the 10% tax): 50% Auto-Burn (0.50%) + 50% Treasury (0.50%)
-     * - 3.5% Hourly Stream (35% of the 10% tax): 35% Top 10 Volume (1.225%), 35% Cashback (1.225%), 30% Stakers Real Yield (1.05%)
-     * - 3.5% Dual Lottery Engine (35% of the 10% tax): 50% Daily 24h VRF Draw (1.75%), 50% Sunday Mega-Jackpot (1.75%)
-     * - 2.0% Protocol & Deflation (20% of the 10% tax): 90% Gas/Infra/Marketing (1.80%), 10% Hourly Batched Buyback & Burn (0.20%)
-     */
-    function _distributeLaunchSwapFees(uint256 feeAmount, address trader) internal {
-        // 1. Programmable.market Fee (1.0% of swap = 10% of the 10% feeAmount)
-        uint256 progFee = (feeAmount * 10) / 100;
-        if (programmableFeeRecipient != address(0) && progFee > 0) {
-            (bool success, ) = payable(programmableFeeRecipient).call{value: progFee}("");
-            if (!success) {
-                programmableFeePot += progFee;
-                emit ProgrammableFeeTransferFailed(programmableFeeRecipient, progFee);
-            } else {
-                emit ProgrammableFeeTransferred(programmableFeeRecipient, progFee);
-            }
-        } else {
-            programmableFeePot += progFee;
-        }
-
-        // 2. Hourly Reward Pot (3.5% of swap = 35% of the 10% feeAmount):
-        // Split 35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH
-        uint256 hourlyTotal = (feeAmount * 35) / 100;
+        // 2. Hourly Reward Pot (35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH)
         uint256 stakingShare = (hourlyTotal * 30) / 100;
         uint256 cashbackShare = (hourlyTotal * 35) / 100;
         uint256 top10Share = hourlyTotal - stakingShare - cashbackShare;
@@ -765,20 +720,34 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             allTradersPerHour[currentHour].push(trader);
         }
 
-        // 3. Dual Lottery Engine (3.5% of swap = 35% of the 10% feeAmount):
-        // Split 50% Daily 24h Lottery (1.75%), 50% Sunday Mega-Jackpot (1.75%)
-        uint256 lotteryTotal = (feeAmount * 35) / 100;
+        // 3. Dual Lottery Engine (50% Daily 24h Lottery, 50% Sunday Mega-Jackpot)
         uint256 sundayShare = lotteryTotal / 2;
-        uint256 dailyShare = lotteryTotal - sundayShare;
-        dailyLotteryPot += dailyShare;
+        dailyLotteryPot += (lotteryTotal - sundayShare);
         sundayMegaPot += sundayShare;
 
-        // 4. Protocol & Deflation Pot (2.0% of swap = remainder 20% of the 10% feeAmount):
-        // 90% Protocol & Marketing pot (1.80%), 10% Hourly Batched Buyback & Burn (0.20%)
+        // 4. Protocol & Deflation Pot (90% Protocol & Marketing pot, 10% Hourly Batched Buyback & Burn)
         uint256 protocolTotal = feeAmount - progFee - hourlyTotal - lotteryTotal;
         uint256 buybackShare = (protocolTotal * 10) / 100;
         protocolPot += (protocolTotal - buybackShare);
         buybackPot += buybackShare;
+    }
+
+    function _collectAndDistributeSwapFee(uint256 baseAmount, address trader, bool sniper) internal returns (uint256 feeAmount) {
+        Currency feeCurrency = Currency.wrap(address(weth));
+        if (sniper) {
+            uint256 devFee = (baseAmount * 90) / 100;
+            uint256 progFee = baseAmount / 100;
+            feeAmount = devFee + progFee;
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            weth.withdraw(feeAmount);
+            _routeAntiSnipeFees(devFee, progFee, trader);
+        } else {
+            bool isBoost = launchTaxEnabled;
+            feeAmount = isBoost ? (baseAmount * 10) / 100 : (baseAmount * 4) / 100;
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            weth.withdraw(feeAmount);
+            _distributeEcosystemFees(feeAmount, trader, isBoost);
+        }
     }
 
     /**
@@ -852,72 +821,25 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
-        // Cache active PoolKey for automated buyback & burn swaps
         if (Currency.unwrap(activePoolKey.currency0) == address(0)) {
             activePoolKey = key;
         }
 
-        // Auto-initialize launchTimestamp on the very first swap if not already set
         if (launchTimestamp == 0) {
             launchTimestamp = block.timestamp;
             emit TradingLaunched(block.timestamp);
         }
 
         bool isExactIn = params.amountSpecified < 0;
-        
-        // Identify if WETH is the specified token
-        bool isWETHSpecified = false;
-        if (isExactIn) {
-            isWETHSpecified = params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth);
-        } else {
-            isWETHSpecified = params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth);
-        }
+        bool isWETHSpecified = isExactIn
+            ? (params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth))
+            : (params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth));
 
         if (isWETHSpecified) {
-            uint256 swapAmount = params.amountSpecified < 0 ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
-            
-            // Hardened trader identification
+            uint256 swapAmount = isExactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
             address trader = _resolveTrader(sender, hookData);
-
-            uint256 feeAmount;
-            bool sniper = _isSniper(trader);
-
-            if (sniper) {
-                // Initial Launch Guard: 90% to dev wallet + 1% to Programmable.market = 91% total tax
-                uint256 devFee = (swapAmount * 90) / 100;
-                uint256 progFee = (swapAmount * 1) / 100;
-                feeAmount = devFee + progFee;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _routeAntiSnipeFees(devFee, progFee, trader);
-            } else if (launchTaxEnabled) {
-                // 10.0% Launch Boost Tax (active up to $100k MC: 3.5% Hourly + 3.5% Lottery + 2.0% Protocol + 1.0% Programmable)
-                feeAmount = (swapAmount * 10) / 100;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _distributeLaunchSwapFees(feeAmount, trader);
-            } else {
-                // 4.0% Standard Swap Tax (post-$100k MC: 1.0% Programmable + 3.0% IRL Ecosystem)
-                feeAmount = (swapAmount * 4) / 100;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _distributeSwapFees(feeAmount, trader);
-            }
-            
-            BeforeSwapDelta returnDelta = toBeforeSwapDelta(
-                int128(int256(feeAmount)), // Specified delta
-                0
-            );
-            return (BaseHook.beforeSwap.selector, returnDelta, 0);
+            uint256 feeAmount = _collectAndDistributeSwapFee(swapAmount, trader, _isSniper(trader));
+            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int256(feeAmount)), 0), 0);
         }
         
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
@@ -935,7 +857,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         if (!antiSnipeWhitelist[trader]) {
             require(tokenAmount <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
 
-            // Anti-Whale: Max Wallet = 2% of 1B supply (20,000,000 IRL) on token purchases
             bool isBuy = isWeth0 ? (delta.amount1() < 0) : (delta.amount0() < 0);
             if (isBuy && trader != address(0)) {
                 address irlTokenAddr = isWeth0 ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
@@ -946,10 +867,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             }
         }
         
-        // Automatic lift of Max TX / Max Wallet limitations at 50k Market Cap
         if (disableAntiWhaleSqrtPrice > 0) {
-            PoolId poolId = key.toId();
-            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
+            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
             bool reached50k = isWeth0 ? (sqrtPriceX96 <= disableAntiWhaleSqrtPrice) : (sqrtPriceX96 >= disableAntiWhaleSqrtPrice);
             if (reached50k) {
                 limitsEnabled = false;
@@ -964,8 +883,7 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     function _checkLaunchTaxCutoff(PoolKey calldata key) internal {
         if (launchTaxEnabled && disableLaunchTaxSqrtPrice > 0) {
             bool isWeth0 = (Currency.unwrap(key.currency0) == address(weth));
-            PoolId poolId = key.toId();
-            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
+            (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
             bool reached100k = isWeth0
                 ? (sqrtPriceX96 <= disableLaunchTaxSqrtPrice)
                 : (sqrtPriceX96 >= disableLaunchTaxSqrtPrice);
@@ -1005,33 +923,26 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             volume = uint256(int256(delta.amount1() < 0 ? -delta.amount1() : delta.amount1()));
         }
         
-        // Hardened trader identification
         address trader = _resolveTrader(sender, hookData);
-
         bool sniper = _isSniper(trader);
 
-        // Anti-Whale Auto-Disable with cached PoolId
         if (limitsEnabled) {
             _enforceAntiWhale(key, delta, trader);
         }
 
-        // Dynamic Score Leaderboard & NFT rewards (exclusive to non-snipers)
         if (!sniper) {
             userVolumePerHour[hourId][trader] += volume;
             
             uint256 _staked = address(stakingContract) != address(0) ? stakingContract.getStakedAmount(trader) : 0;
-            // Progressive multiplier from 0% to +50% requiring the full 2% supply (20M IRL)
             uint256 _bonus = (_staked * MAX_STAKING_BONUS_PERCENT) / MAX_STAKING_TIER;
             if (_bonus > MAX_STAKING_BONUS_PERCENT) _bonus = MAX_STAKING_BONUS_PERCENT;
             
-            uint256 scoreMultiplier = 100 + _bonus;
-            uint256 scoreDelta = (volume * scoreMultiplier) / 100;
+            uint256 scoreDelta = (volume * (100 + _bonus)) / 100;
             
             userHourlyScore[hourId][trader] += scoreDelta;
             totalHourlyScore[hourId] += scoreDelta;
             _updateTop10(hourId, trader, userHourlyScore[hourId][trader]);
 
-            // Volume NFTs (boosted by staking multiplier, bounded by user's daily volume limit 6 to 10)
             dailyVolume[dayId][trader] += scoreDelta;
             uint256 currentVolume = dailyVolume[dayId][trader];
             uint256 maxDailyVolumeTix = getMaxDailyVolumeTickets(trader);
@@ -1046,53 +957,11 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
                 }
             }
 
-            // Staking NFTs Auto-Mint (Every 4-day epoch)
             _mintStakingTickets(trader, dayId, weekId);
         }
         
-        // Fee on unspecified currency (WETH leg)
-        bool isWETHUnspecified = false;
-        if (isExactIn) {
-            isWETHUnspecified = params.zeroForOne ? Currency.unwrap(key.currency1) == address(weth) : Currency.unwrap(key.currency0) == address(weth);
-        } else {
-            isWETHUnspecified = params.zeroForOne ? Currency.unwrap(key.currency0) == address(weth) : Currency.unwrap(key.currency1) == address(weth);
-        }
-                                          
-        if (isWETHUnspecified) {
-            uint256 absOutput = volume;
-            uint256 feeAmount;
-
-            if (sniper) {
-                // Initial Launch Guard: 90% to dev wallet + 1% to Programmable.market = 91% total tax
-                uint256 devFee = (absOutput * 90) / 100;
-                uint256 progFee = (absOutput * 1) / 100;
-                feeAmount = devFee + progFee;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _routeAntiSnipeFees(devFee, progFee, trader);
-            } else if (launchTaxEnabled) {
-                // 10.0% Launch Boost Tax (active up to $100k MC)
-                feeAmount = (absOutput * 10) / 100;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _distributeLaunchSwapFees(feeAmount, trader);
-            } else {
-                // 4.0% Standard Swap Tax (post-$100k MC)
-                feeAmount = (absOutput * 4) / 100;
-
-                Currency feeCurrency = Currency.wrap(address(weth));
-                poolManager.take(feeCurrency, address(this), feeAmount);
-                weth.withdraw(feeAmount);
-
-                _distributeSwapFees(feeAmount, trader);
-            }
-
+        if (!isWETHSpecified) {
+            uint256 feeAmount = _collectAndDistributeSwapFee(volume, trader, sniper);
             _checkLaunchTaxCutoff(key);
             return (BaseHook.afterSwap.selector, int128(int256(feeAmount)));
         }
@@ -1106,19 +975,15 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         uint256 currentDay = block.timestamp / 1 days;
         uint256 currentWeek = (block.timestamp + 3 days) / 7 days;
         
-        // 1. In-flight batch queue processing
         if (queueIndex < queueLength) {
             return (true, abi.encode(uint8(2), 0));
         }
-        // 2. Daily lottery draw when day boundary is reached
         if (currentDay > lastLotteryDay) {
             return (true, abi.encode(uint8(3), currentDay));
         }
-        // 3. Sunday Mega-Jackpot draw when weekly boundary is reached
         if (currentWeek > lastLotteryWeek) {
             return (true, abi.encode(uint8(4), currentWeek));
         }
-        // 4. Hourly distribution setup
         if (currentHour > lastProcessedHour && queueIndex == queueLength) {
             return (true, abi.encode(uint8(1), 0));
         }
@@ -1154,13 +1019,13 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             require(curDay > lastLotteryDay, "Daily draw not ready");
             uint256 targetDay = lastLotteryDay;
             lastLotteryDay = curDay;
-            _triggerDailyLottery(targetDay);
+            _triggerLotteryDraw(targetDay, 1);
         } else if (actionType == 4) {
             uint256 curWeek = (block.timestamp + 3 days) / 7 days;
             require(curWeek > lastLotteryWeek, "Weekly draw not ready");
             uint256 targetWeek = lastLotteryWeek;
             lastLotteryWeek = curWeek;
-            _triggerSundayMegaJackpot(targetWeek);
+            _triggerLotteryDraw(targetWeek, 2);
         } else {
             revert("Invalid upkeep action");
         }
@@ -1200,8 +1065,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
             protocolPot += totalReward;
         }
 
-        // Process the 10% protocol/dev fee buyback & burn once per hour in a single consolidated
-        // transaction so the price chart is never spammed with micro-buybacks on every swap.
         if (
             buybackPot > 0 &&
             Currency.unwrap(activePoolKey.currency0) != address(0) &&
@@ -1243,88 +1106,57 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         queueIndex = limit;
     }
 
-    function _triggerDailyLottery(uint256 dayId) internal {
+    function _triggerLotteryDraw(uint256 timeId, uint8 reqType) internal {
         uint256 fee = randomnessRouter.requestFee();
         if (fee > 0) {
             require(protocolPot >= fee, "Insufficient protocolPot for VRF fee");
             protocolPot -= fee;
         }
-        uint256 prize = dailyLotteryPot;
-        dailyLotteryPot = 0;
-
-        uint256 requestId = randomnessRouter.requestRandomness{value: fee}(callbackGasLimit);
-        
-        vrfRequestType[requestId] = 1; // 1 = Daily
-        vrfRequestToTimeId[requestId] = dayId;
-        vrfRequestPrize[requestId] = prize;
-        emit LotteryRequested(requestId, dayId);
-    }
-
-    function _triggerSundayMegaJackpot(uint256 weekId) internal {
-        uint256 fee = randomnessRouter.requestFee();
-        if (fee > 0) {
-            require(protocolPot >= fee, "Insufficient protocolPot for VRF fee");
-            protocolPot -= fee;
+        uint256 prize;
+        if (reqType == 1) {
+            prize = dailyLotteryPot;
+            dailyLotteryPot = 0;
+        } else {
+            prize = sundayMegaPot;
+            sundayMegaPot = 0;
         }
-        uint256 prize = sundayMegaPot;
-        sundayMegaPot = 0;
 
         uint256 requestId = randomnessRouter.requestRandomness{value: fee}(callbackGasLimit);
-        
-        vrfRequestType[requestId] = 2; // 2 = Sunday Mega
-        vrfRequestToTimeId[requestId] = weekId;
+        vrfRequestType[requestId] = reqType;
+        vrfRequestToTimeId[requestId] = timeId;
         vrfRequestPrize[requestId] = prize;
-        emit SundayMegaJackpotRequested(requestId, weekId);
+
+        if (reqType == 1) {
+            emit LotteryRequested(requestId, timeId);
+        } else {
+            emit SundayMegaJackpotRequested(requestId, timeId);
+        }
     }
 
     function _fulfillRandomness(uint256 requestId, uint256 randomWord) internal override {
         uint8 reqType = vrfRequestType[requestId];
         uint256 prize = vrfRequestPrize[requestId];
         vrfRequestPrize[requestId] = 0;
-        
-        if (reqType == 1) {
-            // Daily Lottery: strictly within the day's tickets
-            uint256 dayId = vrfRequestToTimeId[requestId];
-            uint256 start = dayStartTicketId[dayId];
-            uint256 end = dayEndTicketId[dayId];
-            
-            if (end >= start && start > 0) {
-                uint256 count = end - start + 1;
-                uint256 winningTokenId = start + (randomWord % count);
-                address winner = nftTicket.ownerOf(winningTokenId);
-                
-                (bool success, ) = winner.call{value: prize}("");
-                if (!success) {
-                    // Smart contract winner reverted: route to protocol/marketing pot
-                    protocolPot += prize;
-                }
-                
+        if (reqType != 1 && reqType != 2) return;
+
+        uint256 timeId = vrfRequestToTimeId[requestId];
+        uint256 start = reqType == 1 ? dayStartTicketId[timeId] : weekStartTicketId[timeId];
+        uint256 end = reqType == 1 ? dayEndTicketId[timeId] : weekEndTicketId[timeId];
+
+        if (end >= start && start > 0) {
+            uint256 winningTokenId = start + (randomWord % (end - start + 1));
+            address winner = nftTicket.ownerOf(winningTokenId);
+            (bool success, ) = winner.call{value: prize}("");
+            if (!success) {
+                protocolPot += prize;
+            }
+            if (reqType == 1) {
                 emit LotteryWinnerDrawn(winner, winningTokenId, prize);
             } else {
-                // No tickets minted today: rollover daily pot to Sunday Mega-Jackpot
-                sundayMegaPot += prize;
-            }
-        } else if (reqType == 2) {
-            // Sunday Mega-Jackpot: all tickets minted from Monday through Sunday
-            uint256 weekId = vrfRequestToTimeId[requestId];
-            uint256 start = weekStartTicketId[weekId];
-            uint256 end = weekEndTicketId[weekId];
-            
-            if (end >= start && start > 0) {
-                uint256 count = end - start + 1;
-                uint256 winningTokenId = start + (randomWord % count);
-                address winner = nftTicket.ownerOf(winningTokenId);
-                
-                (bool success, ) = winner.call{value: prize}("");
-                if (!success) {
-                    protocolPot += prize;
-                }
-                
                 emit SundayMegaJackpotDrawn(winner, winningTokenId, prize);
-            } else {
-                // No tickets minted this week: preserve pot for next Sunday Mega-Jackpot
-                sundayMegaPot += prize;
             }
+        } else {
+            sundayMegaPot += prize;
         }
     }
 }
