@@ -345,12 +345,12 @@ contract StressAndEcosystemValidationTest is BaseTest {
         assertEq(hook.dailyLotteryPot() - dailyPotBefore, expectedDaily, "Daily pot must receive 50% of lottery split");
         assertEq(hook.sundayMegaPot() - sundayPotBefore, expectedSunday, "Sunday pot must receive 50% of lottery split");
 
-        // 4. Protocol: 1.20% split (90% protocol/gas, 10% buyback)
+        // 4. Protocol & Deflation: 1.20% split (0.75% protocol/gas, 0.45% buyback & burn -> 0.15% + 0.45% = 0.60% total burn)
         uint256 protocolTotal = totalTax - progFee - hourlyTotal - lotteryTotal;
-        uint256 expectedBuyback = (protocolTotal * 10) / 100;
+        uint256 expectedBuyback = (totalTax * 45) / 400;
         uint256 expectedProtocol = protocolTotal - expectedBuyback;
-        assertEq(hook.buybackPot() - buybackPotBefore, expectedBuyback, "Buyback pot must receive 10% of protocol share");
-        assertEq(hook.protocolPot() - protocolPotBefore, expectedProtocol, "Protocol pot must receive 90% of protocol share");
+        assertEq(hook.buybackPot() - buybackPotBefore, expectedBuyback, "Buyback pot must receive 0.45% of swap");
+        assertEq(hook.protocolPot() - protocolPotBefore, expectedProtocol, "Protocol pot must receive 0.75% of swap");
     }
 
     /**

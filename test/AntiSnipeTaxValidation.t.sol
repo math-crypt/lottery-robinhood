@@ -251,12 +251,12 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         // - 0.30% Programmable (0.003 ETH)
         // - 1.25% Hourly (0.0125 ETH)
         // - 1.25% Lottery (0.625% Daily = 0.00625 ETH + 0.625% Weekly = 0.00625 ETH)
-        // - 1.20% Protocol & Burn (1.08% Protocol = 0.0108 ETH + 0.12% Buyback = 0.0012 ETH)
+        // - 1.20% Protocol & Burn (0.75% Protocol = 0.0075 ETH + 0.45% Buyback = 0.0045 ETH)
         assertFalse(hook.launchTaxEnabled(), "launchTaxEnabled storage flag must permanently flip to false after 24h");
         assertEq(progRecipient.balance - progBefore, 0.003 ether, "0.30% Programmable fee after 24h");
         assertEq(hook.dailyLotteryPot() - dailyBefore, 0.00625 ether, "0.625% Daily Lottery after 24h");
-        assertEq(hook.protocolPot() - protocolBefore, 0.0108 ether, "1.08% Protocol Pot after 24h");
-        assertEq(hook.buybackPot() - burnBefore, 0.0012 ether, "0.12% Buyback Burn Pot after 24h");
+        assertEq(hook.protocolPot() - protocolBefore, 0.0075 ether, "0.75% Protocol Pot after 24h");
+        assertEq(hook.buybackPot() - burnBefore, 0.0045 ether, "0.45% Buyback Burn Pot after 24h");
     }
 
     function test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent() public {
@@ -295,7 +295,7 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         // - 0.30% Programmable.market (0.003 ETH)
         // - 3.75% Hourly Pot (0.0375 ETH)
         // - 3.75% Lottery Pots (1.875% Daily = 0.01875 ETH + 1.875% Weekly = 0.01875 ETH)
-        // - 2.20% Protocol & Buyback Pot (1.98% Protocol = 0.0198 ETH + 0.22% Buyback Burn = 0.0022 ETH)
+        // - 2.20% Protocol & Buyback Pot (1.75% Protocol = 0.0175 ETH + 0.45% Buyback Burn = 0.0045 ETH)
         assertEq(progRecipient.balance - progBefore, 0.003 ether, "0.30% Programmable during Launch Boost");
         assertEq(
             hook.hourlyPotByHour(hourId) + hook.userCashbackPerHour(hourId, traderB) + address(staking).balance,
@@ -304,8 +304,8 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         );
         assertEq(hook.dailyLotteryPot(), 0.01875 ether, "1.875% Daily Lottery during Launch Boost");
         assertEq(hook.sundayMegaPot(), 0.01875 ether, "1.875% Sunday Lottery during Launch Boost");
-        assertEq(hook.protocolPot(), 0.0198 ether, "1.98% Protocol Pot during Launch Boost");
-        assertEq(hook.buybackPot(), 0.0022 ether, "0.22% Buyback Burn Pot during Launch Boost");
+        assertEq(hook.protocolPot(), 0.0175 ether, "1.75% Protocol Pot during Launch Boost");
+        assertEq(hook.buybackPot(), 0.0045 ether, "0.45% Buyback Burn Pot during Launch Boost");
 
         // Simulate reaching 100k Market Cap cutoff
         (uint160 currentSqrtPrice,,,) = poolManager.getSlot0(poolId);
@@ -352,8 +352,8 @@ contract AntiSnipeTaxValidationTest is BaseTest {
 
         assertEq(progRecipient.balance - progBefore2, 0.003 ether, "0.30% Programmable after 100k MC");
         assertEq(hook.dailyLotteryPot() - dailyBefore, 0.00625 ether, "0.625% Daily Lottery after 100k MC");
-        assertEq(hook.protocolPot() - protocolBefore, 0.0108 ether, "1.08% Protocol Pot after 100k MC");
-        assertEq(hook.buybackPot() - burnPotBefore, 0.0012 ether, "0.12% Buyback Burn Pot after 100k MC");
+        assertEq(hook.protocolPot() - protocolBefore, 0.0075 ether, "0.75% Protocol Pot after 100k MC");
+        assertEq(hook.buybackPot() - burnPotBefore, 0.0045 ether, "0.45% Buyback Burn Pot after 100k MC");
     }
 
     function test_LiquidityCustody_90PercentPermanentLock_10PercentMarketing_AndInitialBuy() public {

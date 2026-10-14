@@ -105,8 +105,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     mapping(uint256 => uint256) public dailyPotByDay;
     mapping(uint256 => uint256) public weeklyPotByWeek;
     uint256 public hourlyRewardPot;
-    uint256 public protocolPot; // For VRF/Automation fees and Marketing
-    uint256 public buybackPot; // 10% of protocol fees reserved for hourly buyback & burn
+    uint256 public protocolPot; // For VRF/Automation fees and Marketing (0.75% Standard / 1.75% Launch Boost)
+    uint256 public buybackPot; // 0.45% (45 bps) of every swap reserved for hourly V4 buyback & burn (0.15% Prog + 0.45% = 0.60% total burn)
     uint256 public lastBuybackHour; // Enforces 1-hour batching for protocol buyback & burn
     mapping(uint256 => uint256) public hourlyPotByHour;
     mapping(uint256 => uint256) public vrfRequestPrize;
@@ -399,8 +399,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved 10% protocol fees
-     * and permanently burns the purchased $IRL tokens to 0xdead.
+     * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved 0.45% (45 bps) swap buyback pot
+     * and permanently burns the purchased $IRL tokens to 0xdead (0.15% Programmable burn + 0.45% = 0.60% total burn).
      * Batched once per hour so the price chart is never spammed with micro-buybacks on every trade.
      */
     function executeBuybackAndBurn() external nonReentrant {
@@ -631,22 +631,22 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     /**
      * @dev Distributes swap fees across Programmable.market (immutable 0.30%) and all ecosystem pots:
      * - Launch Boost 10.00% mode (isLaunchBoost = true, 1000 bps total):
-     *   - 0.30% (30/1000 of fee) -> Programmable.market (0xD88539d3c4C460136a733A3Fd60cf6BF269079da)
+     *   - 0.30% (30/1000 of fee) -> Programmable.market (0.15% burned + 0.15% treasury)
      *   - 3.75% (375/1000 of fee) -> Hourly Pot (35% Top 10, 35% Cashback, 30% Stakers Real Yield)
      *   - 3.75% (375/1000 of fee) -> Dual Lottery Pot (1.875% Daily, 1.875% Sunday Mega-Jackpot)
-     *   - 2.20% (220/1000 of fee) -> Protocol & Deflation (1.98% Protocol, 0.22% Hourly Batched Burn)
+     *   - 2.20% (220/1000 of fee) -> Protocol & Deflation (1.75% Protocol, 0.45% Hourly Batched Burn -> 0.60% total burn/tx)
      * - Standard Cruise 4.00% mode (isLaunchBoost = false, 400 bps total):
-     *   - 0.30% (30/400 of fee) -> Programmable.market (0xD88539d3c4C460136a733A3Fd60cf6BF269079da)
+     *   - 0.30% (30/400 of fee) -> Programmable.market (0.15% burned + 0.15% treasury)
      *   - 1.25% (125/400 of fee) -> Hourly Pot (35% Top 10, 35% Cashback, 30% Stakers Real Yield)
      *   - 1.25% (125/400 of fee) -> Dual Lottery Pot (0.625% Daily, 0.625% Sunday Mega-Jackpot)
-     *   - 1.20% (120/400 of fee) -> Protocol & Deflation (1.08% Protocol, 0.12% Hourly Batched Burn)
+     *   - 1.20% (120/400 of fee) -> Protocol & Deflation (0.75% Protocol, 0.45% Hourly Batched Burn -> 0.60% total burn/tx)
      */
     function _distributeEcosystemFees(uint256 feeAmount, address trader, bool isLaunchBoost) internal {
         uint256 progFee = isLaunchBoost ? (feeAmount * 30) / 1000 : (feeAmount * 30) / 400;
         uint256 hourlyTotal = isLaunchBoost ? (feeAmount * 375) / 1000 : (feeAmount * 125) / 400;
         uint256 lotteryTotal = hourlyTotal;
 
-        // 1. Immutable Programmable.market Fee (0.30% of swap)
+        // 1. Immutable Programmable.market Fee (0.30% of swap: 0.15% burn + 0.15% treasury)
         _sendProgrammableFee(progFee);
 
         // 2. Hourly Reward Pot (35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH)
@@ -675,9 +675,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         dailyPotByDay[currentDay] += (lotteryTotal - sundayShare);
         weeklyPotByWeek[currentWeek] += sundayShare;
 
-        // 4. Protocol & Deflation Pot (90% Protocol & Marketing pot, 10% Hourly Batched Buyback & Burn)
+        // 4. Protocol & Deflation Pot (0.45% of swap to Hourly Batched Buyback & Burn + remainder to Protocol Pot)
         uint256 protocolTotal = feeAmount - progFee - hourlyTotal - lotteryTotal;
-        uint256 buybackShare = (protocolTotal * 10) / 100;
+        uint256 buybackShare = isLaunchBoost ? (feeAmount * 45) / 1000 : (feeAmount * 45) / 400;
         protocolPot += (protocolTotal - buybackShare);
         buybackPot += buybackShare;
     }

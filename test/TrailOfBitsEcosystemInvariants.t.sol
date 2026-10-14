@@ -189,22 +189,23 @@ contract TrailOfBitsEcosystemInvariantsTest is Test {
         // Swap fees between 0.001 ETH and 1000 ETH
         swapFee = bound(swapFee, 1e15, 1000 ether);
 
-        // 1. Each 1% portion is swapFee / 4
-        uint256 split = swapFee / 4;
-        uint256 progFee = split;
+        // 1. Standard 4.00% (400 bps) split: 30 bps Prog, 125 bps Hourly, 125 bps Lottery, 120 bps Protocol/Burn
+        uint256 progFee = (swapFee * 30) / 400;
+        uint256 hourlyTotal = (swapFee * 125) / 400;
+        uint256 lotteryTotal = hourlyTotal;
 
         // 2. Hourly: 30% staking, 35% cashback, 35% top10
-        uint256 stakingShare = (split * 30) / 100;
-        uint256 cashbackShare = (split * 35) / 100;
-        uint256 top10Share = split - stakingShare - cashbackShare;
+        uint256 stakingShare = (hourlyTotal * 30) / 100;
+        uint256 cashbackShare = (hourlyTotal * 35) / 100;
+        uint256 top10Share = hourlyTotal - stakingShare - cashbackShare;
 
         // 3. Lottery: 50% Sunday, 50% Daily
-        uint256 sundayShare = split / 2;
-        uint256 dailyShare = split - sundayShare;
+        uint256 sundayShare = lotteryTotal / 2;
+        uint256 dailyShare = lotteryTotal - sundayShare;
 
-        // 4. Protocol: remainder absorbs integer truncation
-        uint256 protocolTotal = swapFee - (3 * split);
-        uint256 buybackShare = (protocolTotal * 10) / 100;
+        // 4. Protocol: 120 bps remainder (45 bps buyback & burn + 75 bps protocol pot) absorbs integer truncation
+        uint256 protocolTotal = swapFee - progFee - hourlyTotal - lotteryTotal;
+        uint256 buybackShare = (swapFee * 45) / 400;
         uint256 protocolPotShare = protocolTotal - buybackShare;
 
         uint256 totalAccounted = progFee +

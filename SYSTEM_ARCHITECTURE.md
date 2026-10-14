@@ -13,7 +13,7 @@
 
 1. **Hourly Reward Engine:** Distributes native ETH every 60 minutes across Top 10 volume traders (`35%`), active swapper cashback (`35%`), and real-time `$IRL` staker yield (`30%`).
 2. **Epoch-Isolated Dual Lottery Engine:** Routes `50%` to the Daily 24h Jackpot (`dailyPotByDay[dayId]`) and `50%` to the Sunday Mega-Jackpot (`weeklyPotByWeek[weekId]`), drawn via **OpenVRF** over ERC-721 lottery tickets (`IRLTicketNFT.sol`) minted automatically from trading volume and staking.
-3. **Hyper-Deflationary Burn Engine:** Combines an automatic `0.50%` `$IRL` burn on every swap (`InternetRobinLottery.sol`) with an hourly batched V4 buyback-and-burn (`0.12%` in Standard mode / `0.22%` in Launch Boost mode) sent to `0x000000000000000000000000000000000000dEaD`.
+3. **Hyper-Deflationary Burn Engine (`0.60%` Burn per Swap):** Combines Programmable.market's `0.15%` automatic burn (`50%` of the `0.30%` Programmable fee) with an hourly batched V4 buyback-and-burn of **`0.45%` (`45 bps`)** of every swap (`buybackPot`) sent to `0x000000000000000000000000000000000000dEaD` (`0.15% + 0.45% = 0.60%` total supply burned per trade).
 4. **Immutable Launchpad Routing:** Hardcodes a `0.30%` (`30 bps`) platform fee on every buy and sell directly to Programmable.market (`0xD88539d3c4C460136a733A3Fd60cf6BF269079da`).
 
 ```mermaid
@@ -21,12 +21,12 @@ flowchart TD
     Trader["Trader / Router"] -->|"Swap $IRL <-> WETH"| PM["Uniswap V4 PoolManager"]
     PM -->|"beforeSwap / afterSwap Delta"| Hook["IRLUniswapV4Hook.sol"]
     PM -->|"ERC-20 Transfer"| Token["InternetRobinLottery.sol ($IRL)"]
-    Token -->|"0.50% Automatic Swap Burn"| Dead["0xdead Burn Address"]
 
-    Hook -->|"0.30% Immutable Fee (30 bps)"| Prog["Programmable.market (0xD885...79da)"]
+    Hook -->|"0.30% Immutable Fee (0.15% Burn + 0.15% Treasury)"| Prog["Programmable.market (0xD885...79da)"]
     Hook -->|"1.25% Std / 3.75% Boost"| Hourly["Hourly Reward Engine"]
     Hook -->|"1.25% Std / 3.75% Boost"| Lottery["Epoch-Isolated Lottery Pots"]
-    Hook -->|"1.20% Std / 2.20% Boost"| Proto["Protocol (90%) & Buyback Burn (10%)"]
+    Hook -->|"1.20% Std / 2.20% Boost"| Proto["Protocol (0.75% / 1.75%) & Buyback Burn (0.45%)"]
+    Proto -->|"0.45% Hourly V4 Buyback & Burn"| Dead["0xdead Burn Address (0.60% Total Burn/Tx)"]
 
     Hourly -->|"30% Instant ETH"| Staking["IRLStaking.sol (Synthetix Rewards)"]
     Hourly -->|"35% Cashback + 35% Top 10"| Queue["Hourly Payout Queue (Push + Unclaimed Pull Fallback)"]
@@ -46,8 +46,8 @@ flowchart TD
 
 | Contract | Source File | Responsibility |
 | :--- | :--- | :--- |
-| **`InternetRobinLottery`** | `src/InternetRobinLottery.sol` | Fixed-supply ERC-20 (`1,000,000,000 $IRL`). Enforces an automatic `0.50%` (`50 bps`) burn to `0xdead` on swaps involving `PoolManager` while keeping wallet-to-wallet transfers, staking, and initial liquidity seeding `0%` tax-free. |
-| **`IRLUniswapV4Hook`** | `src/IRLUniswapV4Hook.sol` | Core Uniswap V4 Hook (`BEFORE_SWAP_FLAG \| AFTER_SWAP_FLAG \| BEFORE_SWAP_RETURNS_DELTA_FLAG \| AFTER_SWAP_RETURNS_DELTA_FLAG`). Manages bounded swap fees, anti-whale limits, hourly rewards, epoch-isolated lottery pots, OpenVRF callbacks, and hourly batched buyback-and-burn. |
+| **`InternetRobinLottery`** | `src/InternetRobinLottery.sol` | Fixed-supply ERC-20 (`1,000,000,000 $IRL`, `18` decimals, zero external mints, `0%` transfer tax). |
+| **`IRLUniswapV4Hook`** | `src/IRLUniswapV4Hook.sol` | Core Uniswap V4 Hook (`BEFORE_SWAP_FLAG \| AFTER_SWAP_FLAG \| BEFORE_SWAP_RETURNS_DELTA_FLAG \| AFTER_SWAP_RETURNS_DELTA_FLAG`). Manages bounded swap fees, anti-whale limits, hourly rewards, epoch-isolated lottery pots, OpenVRF callbacks, and `0.45%` hourly batched V4 buyback-and-burn. |
 | **`IRLMarketingVault`** | `src/IRLMarketingVault.sol` | Liquidity custody and single-sided LP vault. Holds and seeds `100%` of the initial `$IRL` supply into `PoolManager` during the atomic launch as two verifiable positions: `90%` (`900M $IRL`) permanently locked forever and `10%` (`100M $IRL`) conditionally locked in an upper marketing bracket. |
 | **`IRLTicketNFT`** | `src/IRLTicketNFT.sol` | ERC-721 lottery ticket contract with an integrated zero-escrow P2P secondary marketplace (`2%` sale tax routed back into the active lottery pots) and on-chain weekly holding caps (`42` to `70` tickets/week depending on staked `$IRL`). |
 | **`IRLStaking`** | `src/IRLStaking.sol` | Non-custodial `$IRL` staking pool streaming real-time native ETH dividends (`accEthPerShare` Synthetix pattern), up to `+50%` hourly leaderboard score multiplier, raised daily ticket caps (`6` $\rightarrow$ `10`/day), and up to `10` free lottery tickets every 4 days. |
@@ -58,22 +58,22 @@ flowchart TD
 ## 3. Bounded Two-Phase Fee Schedule & Launch Window
 
 ### 3.1 One-Time Non-Resettable Launch Window
-- `launchTimestamp` is initialized exactly once (either explicitly via `launch()` during atomic deployment or automatically on the first swap) and **cannot be reset or modified** by the owner (`require(launchTimestamp == 0, "Already launched")`).
+- `launchTimestamp` is initialized exactly once (either explicitly via `launch()` during atomic deployment or automatically on the first swap) and **cannot be reset or modified** by the owner (`require(launchTimestamp == 0, "AlreadyLaunched")`).
 - There is **no punitive anti-snipe tax** and **no wallet whitelist**. All swaps are subject to clearly bounded fees (`10.00%` during the initial Launch Boost window, then `4.00%` permanently).
 - **Dual Cutoff for Launch Boost (`10.00%` $\rightarrow$ `4.00%`):**
   1. **Fixed Time Expiry (`LAUNCH_TAX_DURATION = 24 hours`):** `isLaunchTaxActive()` automatically returns `false` once `block.timestamp > launchTimestamp + 24 hours`, and the next swap permanently sets `launchTaxEnabled = false`.
   2. **Market Cap Cutoff (`$100,000 MC`):** Configured via `disableLaunchTaxSqrtPrice` (`5.0x` initial `$20k` Market Cap price, i.e., $\sqrt{5} \approx 2.2360679775\times$ initial `sqrtPriceX96`). As soon as the pool `sqrtPriceX96` crosses this threshold, `_checkLaunchTaxCutoff` permanently sets `launchTaxEnabled = false`.
   3. **One-Way Manual Lowering:** The owner can call `disableLaunchTax()` or `removeLimits()` to drop the tax to `4.00%` early, but **can never re-enable** `launchTaxEnabled`.
 
-### 3.2 Complete Fee Allocation Table (Basis Points of WETH Swap Leg)
+### 3.2 Complete Fee Allocation Table (Basis Points per Swap)
 
 | Destination / Engine | Launch Boost Phase (`10.00%` / `1000 bps`)<br>*(First `24h` OR until `$100k MC`)* | Standard Cruise Phase (`4.00%` / `400 bps`)<br>*(Permanent after `24h` or `$100k MC`)* | Sub-Allocation Mechanics |
 | :--- | :---: | :---: | :--- |
-| **1. Programmable.market Platform Fee** | **`0.30%`** (`30 bps`) | **`0.30%`** (`30 bps`) | Hardcoded `constant PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da`, charged once per buy/sell. |
+| **1. Programmable.market Platform Fee** | **`0.30%`** (`30 bps`) | **`0.30%`** (`30 bps`) | Hardcoded `constant PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da`, charged once per buy/sell (`50%` = **`0.15%`** Auto-Burn + `50%` = **`0.15%`** Treasury). |
 | **2. Hourly Reward Pot** | **`3.75%`** (`375 bps`) | **`1.25%`** (`125 bps`) | • **35%** (`1.3125%` / `0.4375%`) $\rightarrow$ Top 10 Hourly Traders Leaderboard<br>• **35%** (`1.3125%` / `0.4375%`) $\rightarrow$ Active Swappers Hourly Cashback<br>• **30%** (`1.1250%` / `0.3750%`) $\rightarrow$ Instant ETH Real Yield to `$IRL` Stakers |
 | **3. Dual Lottery Engine** | **`3.75%`** (`375 bps`) | **`1.25%`** (`125 bps`) | • **50%** (`1.875%` / `0.625%`) $\rightarrow$ `dailyPotByDay[currentDay]` (24h Draw)<br>• **50%** (`1.875%` / `0.625%`) $\rightarrow$ `weeklyPotByWeek[currentWeek]` (Sunday Draw) |
-| **4. Protocol & Deflation Pot** | **`2.20%`** (`220 bps`) | **`1.20%`** (`120 bps`) | • **90%** (`1.98%` / `1.08%`) $\rightarrow$ `protocolPot` (Keeper Gas, VRF & Marketing)<br>• **10%** (`0.22%` / `0.12%`) $\rightarrow$ `buybackPot` (Hourly V4 Buyback & Burn to `0xdead`) |
-| **Total WETH Hook Fee** | **`10.00%`** (`1000 bps`) | **`4.00%`** (`400 bps`) | **Plus `0.50%` automatic `$IRL` token burn on every swap = `0.72%` (Boost) / `0.62%` (Standard) total deflation per trade.** |
+| **4. Protocol & Deflation Pot** | **`2.20%`** (`220 bps`) | **`1.20%`** (`120 bps`) | • **`1.75%` (Boost) / `0.75%` (Standard)** $\rightarrow$ `protocolPot` (Keeper Gas, VRF & Marketing)<br>• **`0.45%` (`45 bps`)** $\rightarrow$ `buybackPot` (Hourly V4 Buyback & Burn to `0xdead`) |
+| **Total Swap Tax & Deflation** | **`10.00%`** (`1000 bps`) | **`4.00%`** (`400 bps`) | **`0.15%` Programmable Burn + `0.45%` Hourly V4 Buyback & Burn = `0.60%` total supply burned per trade!** |
 
 ---
 

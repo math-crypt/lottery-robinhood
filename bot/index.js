@@ -93,9 +93,8 @@ We steal from the whales to give back to the community! $IRL is an innovative De
 🚀 *10.0% Launch Boost Tax (Max 24h OR < $100k MC) ➔ 4.0% Standard Tax:*
 To supercharge the very first hourly, daily, and weekly prize pots at launch, swaps carry a **10.0% Launch Boost Tax** for the **first 24 hours OR up to $100,000 Market Cap** (\`3.75%\` Hourly Pot + \`3.75%\` Lottery Pots + \`2.20%\` Protocol/Buyback Pot + \`0.30%\` Programmable), and then **permanently drop to the 4.0% Standard Tax** (\`1.25% / 1.25% / 1.20% / 0.30%\`) as soon as 24h elapses or $100k MC is reached!
 
-1️⃣ **0.30% Immutable Programmable.market Platform Fee + 0.50% Auto Swap Burn**
-- 0.30% (30 bps) routed immutably to Programmable.market on every swap.
-- 0.50% of every swap automatically burned onchain to \`0xdead\`!
+1️⃣ **0.30% Immutable Programmable.market Platform Fee (0.15% Auto-Burn + 0.15% Treasury)**
+- 0.30% (30 bps) routed immutably to Programmable.market on every swap (50% = \`0.15%\` permanently burned + 50% = \`0.15%\` Programmable treasury)!
 
 2️⃣ **Epoch-Isolated Daily Lottery & Sunday Mega-Jackpot (3.75% Launch Boost ➔ 1.25% Standard via OpenVRF)**
 Trade $IRL to earn NFT Tickets (0.10 WETH threshold per ticket, boosted up to +50% by staking). 
@@ -108,9 +107,9 @@ Trade $IRL to earn NFT Tickets (0.10 WETH threshold per ticket, boosted up to +5
 - **30% Stakers Real Yield**: Streamed as native ETH dividends across eligible $IRL stakers ranked from 0.1% (1M $IRL) to 2.0% (20M $IRL max tier)!
 
 4️⃣ **Protocol Solvency & Double Deflation (2.20% Launch Boost ➔ 1.20% Standard)**
-- 90% (1.98% Boost / 1.08% Standard) for OpenVRF gas, automated keep-alives, and marketing.
-- 10% dedicated to **Hourly Batched $IRL Buyback & Burn** (0.22% at Launch / 0.12% Standard swapped once per hour on V4 to 0xdead)!
-🔥 *Double Deflation*: Combined with the 0.50% auto swap burn, **0.72% (Launch) / 0.62% (Standard) of all swap volume is burned forever**!
+- **1.75% (Launch Boost) ➔ 0.75% (Standard)** for OpenVRF gas, automated keep-alives, and marketing (\`protocolPot\`).
+- **0.45% (45 bps)** dedicated to **Hourly Batched $IRL Buyback & Burn** (\`buybackPot\` swapped once per hour on V4 to \`0xdead\`)!
+🔥 *Double Deflation*: \`0.15%\` Programmable burn + \`0.45%\` Protocol Hourly Buyback & Burn = **0.60% of every swap permanently burned forever**!
 
 5️⃣ **Automated Anti-Whale Protection (< $50k MC)**
 Max transaction (1%) and max wallet (2%) dynamically protect the pool at launch and auto-disable at $50k Market Cap.
@@ -124,13 +123,13 @@ Use /tokenomics to see the exact tax breakdown, or /contracts to verify our code
 bot.command('tokenomics', (ctx) => {
     const text = `📊 *$IRL Tokenomics & Taxes* 📊
 
-All taxes are collected natively in ETH directly from the Uniswap V4 Hook in two automatic phases:
+All taxes are collected natively from the Uniswap V4 Hook in two automatic phases:
 • 🚀 **Phase 1 — 10.0% Launch Boost Tax (Max 24h OR Up to $100,000 Market Cap):** Supercharges the first hourly, daily, and weekly reward pots (\`3.75%\` Hourly + \`3.75%\` Lottery + \`2.20%\` Protocol & Burn + \`0.30%\` Programmable).
 • ⚡ **Phase 2 — 4.0% Standard Cruise Tax (Permanent after 24h or $100,000 Market Cap):** \`1.25%\` Hourly + \`1.25%\` Lottery + \`1.20%\` Protocol & Burn + \`0.30%\` Programmable.
 
 ⚡ *0.30% Programmable.market Platform Fee (Immutable)*:
   • Hardcoded 0.30% (30 bps) once per buy/sell to \`0xD88539d3c4C460136a733A3Fd60cf6BF269079da\`.
-  • Paired with a 0.50% automatic $IRL swap burn to \`0xdead\`!
+  • 50% (\`0.15%\`) permanently auto-burned + 50% (\`0.15%\`) Programmable Treasury!
 
 🏆 *3.75% (Launch Boost) ➔ 1.25% (Standard) Epoch-Isolated Dual Lottery Pot*:
   • 50% for the **Daily Lottery** (1.875% at Launch ➔ 0.625% Standard via OpenVRF).
@@ -142,13 +141,13 @@ All taxes are collected natively in ETH directly from the Uniswap V4 Hook in two
   • 30% for **Eligible Stakers (0.1% to 2.0% tiers)** streamed as native ETH Real Yield (1.125% Boost ➔ 0.375% Standard)!
 
 ⚙️ *2.20% (Launch Boost) ➔ 1.20% (Standard) Protocol & Deflation*:
-  • 90% (1.98% Boost ➔ 1.08% Standard) for OpenVRF gas, automated keep-alives, and marketing.
-  • 10% dedicated to **Hourly Batched Buyback & Burn** (0.22% at Launch ➔ 0.12% Standard accumulated in \`buybackPot\` and swapped WETH -> $IRL to \`0xdead\` once per hour)!
+  • **1.75% (Launch Boost) ➔ 0.75% (Standard)** for OpenVRF gas, automated keep-alives, and marketing (\`protocolPot\`).
+  • **0.45% (45 bps)** dedicated to **Hourly Batched Buyback & Burn** (accumulated in \`buybackPot\` and swapped WETH -> $IRL to \`0xdead\` once per hour)!
 
 🔥 *Double Deflation Flywheel*:
-Total *0.72% (Launch Boost) / 0.62% (Standard) of trading volume is permanently burned* (0.50% auto-burned on every swap + 0.22%/0.12% protocol buyback & burn executed once every hour to \`0xdead\`)!
+Total *0.60% of every swap is permanently burned* (\`0.15%\` Programmable auto-burn + \`0.45%\` protocol hourly V4 buyback & burn executed once every hour to \`0xdead\`)!
 
-*Zero Chart Sell Pressure*: Taxes are intercepted natively in ETH by the V4 Hook, so the $IRL chart never dumps to fund rewards!`;
+*Zero Chart Sell Pressure*: Taxes are intercepted natively by the V4 Hook, so the $IRL chart never dumps to fund rewards!`;
     ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
@@ -273,11 +272,11 @@ bot.command('pot', async (ctx) => {
         return ctx.reply(
             `💰 *Internet Robinhood Lottery Prize Pots (Pre-Launch)* 💰\n\n` +
             `⏳ *Status*: Contracts are *not yet live onchain*. Prize pots will start accumulating natively in ETH as soon as liquidity is seeded via Programmable.market!\n\n` +
-            `⚡ *Programmable 1% Fee*: 50% Auto-burned on every swap + 50% Treasury\n` +
-            `🏆 *Daily Lottery Pot*: 50% of the 1% lottery tax (strict 24h draw via OpenVRF)\n` +
-            `🌟 *Sunday Mega-Jackpot*: 50% of the 1% lottery tax (drawn every Sunday among all weekly tickets)\n` +
-            `⏱️ *Hourly Redistribution*: 35% Top 10 / 35% Cashback / 30% Stakers Real Yield in ETH\n` +
-            `🔥 *Double Deflation*: 0.60% of all swap volume permanently burned!\n\n` +
+            `⚡ *Programmable 0.30% Fee*: 50% (0.15%) Auto-burned on every swap + 50% (0.15%) Treasury\n` +
+            `🏆 *Daily Lottery Pot*: 50% of the lottery tax (1.875% Boost ➔ 0.625% Standard via OpenVRF)\n` +
+            `🌟 *Sunday Mega-Jackpot*: 50% of the lottery tax (1.875% Boost ➔ 0.625% Standard drawn every Sunday)\n` +
+            `⏱️ *Hourly Redistribution*: 3.75% Boost ➔ 1.25% Standard (35% Top 10 / 35% Cashback / 30% Stakers Real Yield)\n` +
+            `🔥 *Double Deflation*: 0.60% of every swap permanently burned (0.15% Programmable + 0.45% Hourly V4 Buyback & Burn)!\n\n` +
             `🔔 *Stay connected in the group to catch the launch countdown and first pot drawings!* 🏹`,
             { parse_mode: 'Markdown' }
         );
