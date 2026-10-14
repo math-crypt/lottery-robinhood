@@ -45,7 +45,7 @@ The **Internet Robinhood Lottery ($IRL)** re-engineers tokenomics from first pri
 1. **Zero Chart Sell Pressure (*Swap-and-Liquify*):** All ecosystem taxes are collected natively in WETH directly from the AMM liquidity pool via `PoolManager.take()`. The contract **never** dumps $IRL tokens on the chart.
 2. **Provably Fair Dual Lotteries:** Winner selection is executed autonomously on-chain using decentralized BLS threshold signatures from **OpenVRF** (`drand`).
 3. **Equitable Real Yield Streaming & Hybrid 24h Staking:** 30% of all hourly swap pots stream directly into native ETH dividends for eligible stakers (`0.1%` to `2.0%` tiers). Staking never locks withdrawals by default (`0h` lock); stakers can claim up to 10 free lottery tickets every 4 days either with **0h lock after 24h of staking** (*Mature Claim*) or **immediately upon staking with a 24h unstake lock** (*Instant Claim*).
-4. **Permanent Double Supply Deflation (`0.60%` Burned per Tx via Chart-Clean Hourly Batching):** `0.15%` is auto-burned via Programmable.market (`50%` of the `0.30%` Programmable fee) + **`0.45%` (`45 bps`)** of every swap accumulates in `buybackPot` and executes as a **single consolidated V4 buyback & burn once every hour** to `0x000...dEaD` (**`0.15% + 0.45% = 0.60%` total burn on every swap** without spamming the chart with micro-buys on every trade).
+4. **Automated Hourly V4 Buyback & Burn (`0.50%` Launch Boost $\rightarrow$ `0.20%` Standard to `0xdead`):** **`0.50%` (`50 bps`)** during the Launch Boost phase and **`0.20%` (`20 bps`)** during the permanent `4.00%` Standard Tax phase accumulates in `buybackPot` on every swap and executes as a **single consolidated Uniswap V4 buyback & burn once every hour** to `0x000...dEaD` (charging the `0.30%` Programmable platform fee once on the internal buyback before swapping the remaining `99.70%` into `$IRL` burned to `0xdead`).
 
 ---
 
@@ -56,7 +56,7 @@ All smart contracts are developed with **Solidity 0.8.26**, optimized with low-l
 | Contract | File Path | Standard | Key Architectural Role |
 | :--- | :--- | :--- | :--- |
 | **$IRL Token** | [`src/InternetRobinLottery.sol`](src/InternetRobinLottery.sol) | ERC-20 | Fixed-supply 1B token (`18` decimals, zero external mints, `0%` transfer tax). |
-| **V4 Lottery Hook** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects native swap tax (**10.00% Launch Boost Tax for max 24h OR up to $100k MC**: `3.75%` Hourly + `3.75%` Lottery + `2.20%` Protocol & Burn [`1.75%` Protocol + `0.45%` Buyback Burn] + `0.30%` Programmable $\rightarrow$ permanently drops at **24h or $100k MC** to **4.00% Standard Tax**: `1.25% / 1.25% / 1.20% [0.75% + 0.45%] / 0.30%`), tracks Top 10 boosted volume, mints tickets, isolates daily/weekly lottery pots by epoch, preserves failed payouts in `unclaimedRewards`, and triggers OpenVRF. |
+| **V4 Lottery Hook** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects native swap tax (**10.00% Launch Boost Tax for max 24h OR up to $100k MC**: `3.75%` Hourly + `3.75%` Lottery + `2.20%` Protocol & Burn [`1.70%` Protocol + `0.50%` Buyback Burn] + `0.30%` Programmable $\rightarrow$ permanently drops at **24h or $100k MC** to **4.00% Standard Tax**: `1.25% / 1.25% / 1.20% [1.00% Protocol + 0.20% Buyback Burn] / 0.30%`), tracks Top 10 boosted volume, mints tickets, isolates daily/weekly lottery pots by epoch, preserves failed payouts in `unclaimedRewards`, and triggers OpenVRF. |
 | **Real Yield Staking** | [`src/IRLStaking.sol`](src/IRLStaking.sol) | MasterChef Real Yield | Continuous native ETH dividend pool streaming 30% of hourly pots across `[0.1%, 2.0%]` eligible staker tiers with a Hybrid 24h Free-Ticket Claim Mechanic (zero unstake lock by default; 0h lock if free tickets claimed after ≥24h staked, or 24h lock on Instant-Claim <24h). |
 | **Lottery Tickets & Market** | [`src/IRLTicketNFT.sol`](src/IRLTicketNFT.sol) | ERC-721 + P2P Market | Dynamic NFT raffle tickets with built-in P2P Marketplace (`listTicket` / `buyTicket`), 2.0% Lottery Tax routing (`1% Daily + 1% Sunday` for Daily+Weekly tickets or `2% Sunday` for Weekly-only), and weekly holding caps (`42`–`70`). |
 | **Liquidity & Marketing Vault** | [`src/IRLMarketingVault.sol`](src/IRLMarketingVault.sol) | LP Custody & Vault | Seeds `100%` of the 1B `$IRL` supply into Uniswap V4 `PoolManager`: **90% (`900M $IRL`) permanently locked forever** (`PERMANENT_LOCKED_SALT`) and **10% (`100M $IRL`) conditionally locked** in an upper marketing bracket (`MARKETING_VAULT_SALT`) withdrawable only once 100% converted to WETH, followed by an atomic `0.15 ETH` initial buy. |
@@ -66,14 +66,14 @@ All smart contracts are developed with **Solidity 0.8.26**, optimized with low-l
 
 ## 3. The Uniswap V4 Hook Tax Breakdown (10% Launch Boost [Max 24h or < $100k MC] $\rightarrow$ 4.0% Standard Tax)
 
-To ignite massive early prize pots from the very first hour, day, and week of trading while guaranteeing a strictly bounded, non-resettable launch window, the Uniswap V4 Hook features a **two-phase automatic tax schedule**:
+To ignite massive early prize pots from the very first hour, day, and week of trading while guaranteeing a strictly bounded, non-resettable launch window and fixed market-cap cutoffs, the Uniswap V4 Hook features a **two-phase automatic tax schedule**:
 
 1. **🚀 Phase 1 — 10.00% Launch Boost Tax (First 24 Hours OR Up to $100,000 Market Cap):**
-   - **0.30% Immutable Programmable.market Fee (`30 bps`):** Hardcoded to `0xD88539d3c4C460136a733A3Fd60cf6BF269079da` once per buy/sell (`50%` Auto-Burn = **`0.15%`** supply burned + `50%` Programmable Treasury = **`0.15%`**).
+   - **0.30% Immutable Programmable.market Fee (`30 bps`):** Hardcoded to `0xD88539d3c4C460136a733A3Fd60cf6BF269079da`, charged once per buy, sell, and internal buyback.
    - **3.75% Hourly Stream (`35/35/30`):** Supercharges the first hourly pots (`1.3125%` Top 10 Traders / `1.3125%` Active Swappers Cashback / `1.125%` Stakers Real Yield in ETH).
    - **3.75% Epoch-Isolated Dual Lottery Engine (OpenVRF):** Supercharges the first Daily 24h Grand Jackpot (`1.875%` into `dailyPotByDay[dayId]`) and the first Sunday Mega-Jackpot (`1.875%` into `weeklyPotByWeek[weekId]`).
-   - **2.20% Protocol & Deflation:** **`1.75%`** protocol/marketing & gas upkeep (`protocolPot`) + **`0.45%` (`45 bps`)** Hourly Batched V4 Buyback & Burn to `0xdead` (`buybackPot`) — delivering **`0.15% + 0.45% = 0.60%` total burn per tx**!
-   - *Fixed 24h Expiry & $100k MC Permanent Drop:* The `10.00%` Launch Boost Tax drops **permanently and irreversibly** to the **4.00% Standard Tax** as soon as **EITHER 24 hours elapses since `launchTimestamp` (`LAUNCH_TAX_DURATION = 24 hours`) OR the pool reaches $100,000 Market Cap** (`disableLaunchTaxSqrtPrice`, `5.0x` from initial $20k MC) — whichever comes first! The owner cannot reset `launchTimestamp` or re-enable `launchTaxEnabled`.
+   - **2.20% Protocol & Deflation:** **`1.70%`** protocol/marketing & gas upkeep (`protocolPot`) + **`0.50%` (`50 bps`)** Hourly Batched V4 Buyback & Burn to `0xdead` (`buybackPot`).
+   - *Fixed 24h Expiry & Fixed $100k MC Permanent Drop:* The `10.00%` Launch Boost Tax drops **permanently and irreversibly** to the **4.00% Standard Tax** as soon as **EITHER 24 hours elapses since `launchTimestamp` (`LAUNCH_TAX_DURATION = 24 hours`) OR the pool reaches the fixed $100,000 Market Cap cutoff** (`disableLaunchTaxSqrtPrice`, `5.0x` from initial $20k MC, set once at initialization and non-adjustable thereafter) — whichever comes first!
 
 2. **⚡ Phase 2 — 4.00% Standard Cruise Tax (Permanent After 24h or $100,000 Market Cap):**
 
@@ -83,14 +83,13 @@ To ignite massive early prize pots from the very first hour, day, and week of tr
           ┌──────────────────────────────────────────┼──────────────────────────────────┬────────────────────────────────┐
           ▼                                          ▼                                  ▼                                ▼
 0.30% Programmable.market Fee            3.75% ➔ 1.25% Hourly (35/35/30)    3.75% ➔ 1.25% Dual Lottery       2.20% ➔ 1.20% Protocol & Burn
- ├── 50% Auto-Burn (0.15% / tx)           ├── 35% Top 10 Volume Traders      ├── 50% Daily 24h (OpenVRF)      ├── 1.75% ➔ 0.75% Gas & Upkeep
- └── 50% Treasury  (0.15% / tx)           ├── 35% Active Swapper Cashback    └── 50% Sunday Mega-Jackpot      └── 0.45% Hourly V4 Buyback Burn
-     (Immutable 0xD885...79da)            └── 30% Stakers Real Yield (ETH)                                         (0.15% + 0.45% = 0.60% Burn)
+ └── 30 bps Once on Buy/Sell/Buyback      ├── 35% Top 10 Volume Traders      ├── 50% Daily 24h (OpenVRF)      ├── 1.70% ➔ 1.00% Protocol & Gas
+     (Immutable 0xD885...79da)            ├── 35% Active Swapper Cashback    └── 50% Sunday Mega-Jackpot      └── 0.50% ➔ 0.20% Hourly V4 Burn
+                                          └── 30% Stakers Real Yield (ETH)                                         (Swapped WETH -> $IRL to 0xdead)
 ```
 
 ### ⚡ 1. 0.30% Immutable Programmable.market Platform Fee (`30 bps` at Launch & Cruise)
-- Enforced at **exactly `0.30%` (`30 bps`) once per buy/sell** directly to the immutable constant `PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da`.
-- Splits **50/50**: **`0.15%` permanently auto-burned** by Programmable.market + **`0.15%`** to the Programmable treasury.
+- Enforced at **exactly `0.30%` (`30 bps`) once** on normal buys, normal sells, and internal buybacks (`executeBuybackAndBurn`) directly to the immutable constant `PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da` without double-charging.
 
 ### ⏱️ 2. Hourly Stream (`3.75%` Launch Boost $\rightarrow$ `1.25%` Standard: 35% Top 10 / 35% Cashback / 30% Stakers)
 - **35% Top 10 of the Hour (`topTradersPerHour`):** Distributed strictly among the **Top 10 traders of that hour** (`1.3125%` Boost / `0.4375%` Standard), ranked and weighted by their **Staking-Boosted Volume Score** (`+0%` to `+50%` bonus up to `2.0%` staked).  
@@ -107,14 +106,8 @@ To ignite massive early prize pots from the very first hour, day, and week of tr
   - **Weekly-Only Ticket (minted earlier in the week):** Routes **100% of the 2% tax** (`2.0%`) directly to `weeklyPotByWeek[currentWeek]`.
 
 ### ⚙️ 4. Protocol Solvency & Hourly Batched Deflation (`2.20%` Launch Boost $\rightarrow$ `1.20%` Standard)
-- **Protocol & VRF Gas Upkeep (`1.75%` Boost $\rightarrow$ `0.75%` Standard):** Funds decentralized OpenVRF oracle gas, Keepers automation, and global growth (`protocolPot`).
-- **0.45% (`45 bps`) Hourly Batched V4 Buyback & Burn (`buybackPot`):** On every buy and sell, **`0.45%` (`45 bps`)** of the swap (`37.5%` of the `1.20%` standard protocol pot) accumulates in `buybackPot` rather than executing micro-swaps on every trade. **Once every hour** (during the automated hourly upkeep or via `executeBuybackAndBurn` gated by `lastBuybackHour`), the entire accumulated `buybackPot` is swapped in a single consolidated `WETH -> $IRL` transaction on the Uniswap V4 pool and permanently burned to `0x000000000000000000000000000000000000dEaD`.
-
-### 🔥 The Double-Deflation Flywheel (0.60% Total Burn per Swap: 0.15% + 0.45%)
-Every swap combines two complementary deflationary mechanisms:
-- **0.15%** auto-burned via Programmable.market (`50%` of the `0.30%` platform fee).
-- **0.45%** (`45 bps`) accumulated in `buybackPot` by the Hook and **bought back & burned once per hour** on the V4 pool to `0xdead`.
-- **Total Burn = 0.60% of every swap permanently burned to `0xdead`!**
+- **Protocol, Marketing & VRF Gas Upkeep (`1.70%` Boost $\rightarrow$ `1.00%` Standard):** Funds decentralized OpenVRF oracle gas, Keepers automation, and global growth (`protocolPot`).
+- **Hourly Batched V4 Buyback & Burn (`0.50%` Boost $\rightarrow$ `0.20%` Standard in `buybackPot`):** On every buy and sell, **`0.50%` (`50 bps`)** during Launch Boost and **`0.20%` (`20 bps`)** during Standard Tax accumulates in `buybackPot` rather than executing micro-swaps on every trade. **Once every hour** (during the automated hourly upkeep or via `executeBuybackAndBurn` gated by `lastBuybackHour`), the Hook deducts the `0.30%` (`30 bps`) Programmable platform fee once from `buybackPot`, swaps the remaining `99.70%` in a single consolidated `WETH -> $IRL` transaction on the Uniswap V4 pool, and permanently burns the purchased `$IRL` to `0x000000000000000000000000000000000000dEaD`.
 
 ---
 
@@ -243,10 +236,10 @@ To ensure healthy token distribution and explosive early reward pots at pool ini
 - **Max Wallet Limit (Up to $50k MC):** 20,000,000 $IRL (2.0% of supply)
 - **10.00% Launch Boost Tax (Max 24 Hours OR Up to $100k MC):** Supercharges early prize pools (`3.75%` Hourly Pot + `3.75%` Daily/Sunday Lottery Pots + `2.20%` Protocol/Buyback Pot + `0.30%` Programmable).
 
-### 🔓 Autonomous Market-Cap & Time Cutoffs ($50k MC & 24h / $100k MC)
-The Hook reads pool prices and timestamps on every swap (`getSlot0`):
-1. **At $50,000 Market Cap (`disableAntiWhaleSqrtPrice`, `2.5x` initial price):** Automatically and permanently disables the `1%` Max TX and `2%` Max Wallet limits (`limitsEnabled = false; emit LimitsDisabled()`).
-2. **At 24 Hours (`LAUNCH_TAX_DURATION = 24 hours`) OR $100,000 Market Cap (`disableLaunchTaxSqrtPrice`, `5.0x` initial price):** Automatically and permanently disables the 10% Launch Boost Tax (`launchTaxEnabled = false; emit LaunchTaxDisabled()`), switching permanently to the **4.00% Standard Cruise Tax** (`1.25% / 1.25% / 1.20% / 0.30%`). `launchTimestamp` is one-time and non-resettable.
+#### 🔓 Fixed Autonomous Market-Cap & Time Cutoffs ($50k MC & 24h / $100k MC)
+The Hook configures `disableAntiWhaleSqrtPrice` (`$50,000 MC`) and `disableLaunchTaxSqrtPrice` (`$100,000 MC`) **once** during initialization via `setDisableAntiWhaleFromInitialPrice` (`CutoffsAlreadyInitialized` on any subsequent call; no owner setter exists to modify them after initialization) and evaluates them on every swap (`getSlot0`):
+1. **At $50,000 Market Cap (`disableAntiWhaleSqrtPrice`, `2.5x` initial price):** Automatically and permanently disables the `1%` Max TX (`10M $IRL` on buys and sells) and `2%` Max Wallet (`20M $IRL`, enforced strictly on buys `irlDelta > 0` so holders at the `2%` boundary can always sell freely through the router) limits (`limitsEnabled = false; emit LimitsDisabled()`).
+2. **At 24 Hours (`LAUNCH_TAX_DURATION = 24 hours`) OR $100,000 Market Cap (`disableLaunchTaxSqrtPrice`, `5.0x` initial price):** Automatically and permanently disables the 10% Launch Boost Tax (`launchTaxEnabled = false; emit LaunchTaxDisabled()`), switching permanently to the **4.00% Standard Cruise Tax** (`1.25% / 1.25% / 1.00% / 0.20% / 0.30%`). `launchTimestamp` is one-time and non-resettable.
 
 ---
 
@@ -264,7 +257,7 @@ The official Telegram bot interfaces directly with the smart contracts on Robinh
 | :--- | :--- | :--- | :--- |
 | `/start` | Onboarding | Welcomes new members, displays pre-launch status alert, official links, and interactive buttons. | Static / Community |
 | `/about` | Architecture | Comprehensive overview of the Robinhood thesis, V4 Hook mechanics, 10% Launch Boost (24h / $100k MC) $\rightarrow$ 4.0% Standard swap tax, and anti-whale protections. | Architecture |
-| `/tokenomics` | Economics | In-depth breakdown of the 4.0% standard swap tax (0.30% Programmable [0.15% Burn + 0.15% Treasury], 1.25% Hourly 35/35/30, 1.25% Dual Lottery 50/50, 1.20% Protocol [0.75% Upkeep + 0.45% Buyback Burn]) and 0.60% double-deflation burn (`0.15% + 0.45%`). | Smart Contract Specs |
+| `/tokenomics` | Economics | In-depth breakdown of the 4.0% standard swap tax (`0.30%` Programmable, `1.25%` Hourly 35/35/30, `1.25%` Dual Lottery 50/50, `1.00%` Protocol & Keeper Gas, `0.20%` Hourly V4 Buyback & Burn to `0xdead`) and 10.0% Launch Boost (`0.30% / 3.75% / 3.75% / 1.70% / 0.50%`). | Smart Contract Specs |
 | `/contracts` | Verification | Displays verified smart contract addresses ($IRL Token, V4 Hook, NFT Tickets, Staking Vault, Marketing Vault) with RobinhoodScan explorer links. | Live Onchain Registry |
 | `/launch` | Roadmap | Current pre-launch phase, network details (Robinhood Chain, Chain ID 4663), 90% permanent locked LP + 10% conditional marketing LP proof, and fair launch roadmap. | Deployment Specs |
 | `/socials` | Community | Verified links to official 𝕏 ([@IRL_Protocol](https://x.com/IRL_Protocol)), Telegram ([t.me/InternetRobinhoodLottery](https://t.me/InternetRobinhoodLottery)), and GitHub. *(Aliases: `/x`, `/twitter`)* | Official Channels |
@@ -285,16 +278,16 @@ The official Telegram bot interfaces directly with the smart contracts on Robinh
 
 Automated scanners (such as Slither, CertiK, ZAUTH) and independent reviewers can verify the authenticity, `CREATE2` provenance, and formal mathematical precision of the finalized Programmable.market launch architecture using the instructions below.
 
-> 📄 **Official Audit Report:** For the complete line-by-line adversarial security audit (**36 / 36 findings & compliance checks verified**: `ARGON-V2-01..07` Programmable.market launch architecture, `ARGON-C01..L04` core adversarial audit, and `TOB-01..05` Trail of Bits formal invariants), EIP-170/EIP-3860 bytecode margins, and mathematical proofs, see [**`AUDIT_REPORT.md`**](AUDIT_REPORT.md).
+> 📄 **Official Audit Report:** For the complete line-by-line adversarial security audit (**38 / 38 findings & compliance checks verified**: `ARGON-V2-01..09` Programmable.market launch architecture, `ARGON-C01..L04` core adversarial audit, and `TOB-01..05` Trail of Bits formal invariants), EIP-170/EIP-3860 bytecode margins, and mathematical proofs, see [**`AUDIT_REPORT.md`**](AUDIT_REPORT.md).
 
 ### 🛡️ Repository History, Provenance & EIP-170 Bytecode Profile
 - **Provenance-Verified Custom Launch Plan (`programmable.custom-launch-plan.v1`):** All 6 production contracts (`InternetRobinLottery`, `IRLUniswapV4Hook`, `IRLMarketingVault`, `IRLStaking`, `IRLTicketNFT`, `OpenVRF`) are compiled deterministically under `solc 0.8.26+commit.8a97fa7a` (`evm_version = "cancun"`, `via_ir = true`, `optimizer_runs = 1`) with 100% verified creation and runtime bytecode matching.
-- **100% Original Core Architecture:** The central business logic—including the two-phase bounded V4 Hook tax (`10.00% Launch Boost -> 4.00% Standard`), `0.60%` double deflation per swap (`0.15%` Programmable auto-burn + `0.45%` hourly batched V4 buyback & burn), `90% / 10%` verifiable LP custody (`PERMANENT_LOCKED_SALT` & `MARKETING_VAULT_SALT`), dynamic volume-weighted Top 10 scoring with staker boost (`+0%` to `+50%`), `[0.1%, 2.0%]` eligible Real Yield staking tiers, Hybrid 24h Free-Ticket Claim, and epoch-isolated OpenVRF lottery pots—was engineered from scratch.
+- **100% Original Core Architecture:** The central business logic—including the two-phase bounded V4 Hook tax (`10.00% Launch Boost -> 4.00% Standard`), `0.50% -> 0.20%` hourly batched V4 buyback & burn (with `0.30%` Programmable fee deducted once on buys, sells, and internal buybacks), `90% / 10%` verifiable LP custody (`PERMANENT_LOCKED_SALT` & `MARKETING_VAULT_SALT`), fixed launch-price cutoffs, dynamic volume-weighted Top 10 scoring with staker boost (`+0%` to `+50%`), `[0.1%, 2.0%]` eligible Real Yield staking tiers, Hybrid 24h Free-Ticket Claim, and epoch-isolated OpenVRF lottery pots—was engineered from scratch.
 
 | Contract | Source File | Runtime Size (B) | Initcode Size (B) | EIP-170 Margin (`24,576 B`) | EIP-3860 Margin (`49,152 B`) |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **V4 Lottery & Tax Hook** | `src/IRLUniswapV4Hook.sol` | `23,312 B` | `24,913 B` | `+1,264 B` | `+24,239 B` |
 | **OpenVRF Coordinator** | `lib/openvrf/src/OpenVRF.sol` | `23,167 B` | `23,572 B` | `+1,409 B` | `+25,580 B` |
+| **V4 Lottery & Tax Hook** | `src/IRLUniswapV4Hook.sol` | `22,588 B` | `24,182 B` | `+1,988 B` | `+24,970 B` |
 | **LP Custody & Marketing Vault** | `src/IRLMarketingVault.sol` | `12,915 B` | `13,323 B` | `+11,661 B` | `+35,829 B` |
 | **NFT Ticket & P2P Market** | `src/IRLTicketNFT.sol` | `6,683 B` | `7,640 B` | `+17,893 B` | `+41,512 B` |
 | **Real Yield Staking Vault** | `src/IRLStaking.sol` | `4,390 B` | `4,530 B` | `+20,186 B` | `+44,622 B` |
@@ -304,10 +297,10 @@ Automated scanners (such as Slither, CertiK, ZAUTH) and independent reviewers ca
 
 | Audit ID | Severity | Audited Mechanism / Security Vector | On-Chain Verification & Guarantee |
 | :--- | :---: | :--- | :--- |
-| **`ARGON-V2-01`** | **High** | One-Time Launch Window & `10.00% -> 4.00%` Tax Transition | `launchTimestamp` is non-resettable (`AlreadyLaunched`); `10.00%` Launch Boost drops permanently to `4.00%` at **24 hours (`LAUNCH_TAX_DURATION`) OR `$100,000 Market Cap`** |
-| **`ARGON-V2-02`** | **High** | Immutable `0.30%` (`30 bps`) Programmable.market Fee | Hardcoded `constant PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da` (`30 bps` once per swap) with pull-claimable `programmableFeePot` fallback |
-| **`ARGON-V2-03`** | **High** | Exact `0.60%` Double Deflation Accounting per Swap | `0.15%` (`15 bps`) auto-burned via Programmable + `0.45%` (`45 bps`) reserved in `buybackPot` & swapped hourly on V4 (`WETH -> $IRL`) directly to `0xdead` |
-| **`ARGON-V2-04`** | **High** | Verifiable `90% / 10%` LP Custody & Atomic `0.15 ETH` Buy | `900M $IRL` (`90%`) locked forever under `PERMANENT_LOCKED_SALT` (zero withdrawal functions) + `100M $IRL` (`10%`) under `MARKETING_VAULT_SALT` (100% WETH tick check) + `0.15 ETH` initial buy |
+| **`ARGON-V2-01`** | **High** | One-Time Launch Window, Fixed Cutoffs & `10.00% -> 4.00%` Transition | `launchTimestamp` & price cutoffs (`$50k MC` / `$100k MC`) are one-time and fixed after initialization; `10.00%` drops permanently to `4.00%` at **24h OR `$100,000 MC`** |
+| **`ARGON-V2-02`** | **High** | Immutable `0.30%` (`30 bps`) Programmable Fee Across All 3 Paths | Hardcoded `PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da` (`30 bps` once on normal buys, normal sells, and internal buybacks without double-charging) |
+| **`ARGON-V2-03`** | **High** | Hourly V4 Buyback & Burn (`0.50%` Boost / `0.20%` Standard) | `0.50%` (`50 bps` Boost) / `0.20%` (`20 bps` Standard) reserved in `buybackPot`, pays `30 bps` Programmable fee once, and swaps remaining WETH to `$IRL` burned to `0xdead` |
+| **`ARGON-V2-04`** | **High** | Verifiable `90% / 10%` LP Custody, Anti-Whale Direction & `0.15 ETH` Buy | `900M $IRL` (`90%`) locked forever (`PERMANENT_LOCKED_SALT`), `100M $IRL` (`10%`) conditional WETH-only LP (`MARKETING_VAULT_SALT`), `0.15 ETH` initial buy, and `irlDelta > 0` buy wallet cap |
 | **`ARGON-V2-05`** | **Medium** | Recipient-Protected Pull Fallback (`unclaimedRewards`) | Failed ETH payouts in hourly or lottery distributions credit `unclaimedRewards[recipient]` (`claimUnclaimedRewards()`), never diverting user winnings to `protocolPot` |
 | **`ARGON-V2-06`** | **Medium** | Strict Epoch-Isolated Lottery Pots (`dailyPotByDay` / `weeklyPotByWeek`) | Delayed keeper draws isolate `dailyPotByDay[dayId]` and `weeklyPotByWeek[weekId]` so new-epoch swap taxes never bleed into prior draws |
 | **`ARGON-V2-07`** | **Medium** | Deterministic `CREATE2` & Atomic Executor Guard | Constructors & `_checkOwner()` / `_spendAllowance()` bind `0xe21827818Fea1F14d59929CAE36a93c0B44e0aE1` strictly to `tx.origin == owner` |
@@ -317,7 +310,7 @@ Automated scanners (such as Slither, CertiK, ZAUTH) and independent reviewers ca
 | **`ARGON-M01..M05`** | **Medium** | `PositionManager` separation, `[0.1%, 2.0%]` tiers & VRF isolation | Separate `POSITION_MANAGER`, `unallocatedYield` pre-stake buffer, `[1M, 20M $IRL]` eligible tiers, `vrfRequestPrize` snapshots & `hourlyPotByHour` isolation |
 | **`ARGON-L01..L04`** | **Low** | P2P Marketplace `2.0%` Lottery Tax & Weekly Holding Caps | Built-in P2P Marketplace (`98%` seller / `2%` Lottery Tax via `receiveMarketplaceTax`) & weekly holding cap (`42`–`70` tickets) in `IRLTicketNFT._update` |
 
-### 🧪 Comprehensive Verification Suite (44/44 Passing Tests — 100% Pass Rate)
+### 🧪 Comprehensive Verification Suite (46/46 Passing Tests — 100% Pass Rate)
 
 The repository includes an exhaustive Foundry unit, fuzz, formal invariant, and multi-month simulation suite:
 
@@ -329,53 +322,55 @@ cd lottery-robinhood
 # Install dependencies
 forge install
 
-# Run the complete 44-test verification suite and check EIP-170 contract sizes
+# Run the complete 46-test verification suite and check EIP-170 contract sizes
 forge test -v
 forge build --sizes
 ```
 
-#### 📊 Complete 44-Test Verification Matrix (`forge test -v`)
+#### 📊 Complete 46-Test Verification Matrix (`forge test -v`)
 
 | Test Suite | Test Function | Result | Gas / Fuzz Metric | Validation Scope |
 | :--- | :--- | :---: | :---: | :--- |
-| **Trail of Bits Invariants** | `test_Invariant_FeeConservation_ZeroWeiLeak_Fuzz` | **PASS** | `256 runs` (`μ: 5,397`) | Formal zero-wei fee conservation across 256 fuzz runs (0.001 to 1,000 ETH) |
+| **Trail of Bits Invariants** | `test_Invariant_FeeConservation_ZeroWeiLeak_Fuzz` | **PASS** | `256 runs` (`μ: 5,387`) | Formal zero-wei fee conservation across 256 fuzz runs (0.001 to 1,000 ETH) |
 | **Trail of Bits Invariants** | `test_Invariant_MarketingVault_DirectionalRugProof_Token0` | **PASS** | `275,828` | Proves dev cannot withdraw IRL liquidity when `tick < marketingTickUpper` (`token0`) |
 | **Trail of Bits Invariants** | `test_Invariant_MarketingVault_DirectionalRugProof_Token1` | **PASS** | `276,780` | Proves dev cannot withdraw IRL liquidity when `tick > marketingTickLower` (`token1`) |
-| **Trail of Bits Invariants** | `test_Invariant_OpenVRF_RouterExclusivity` | **PASS** | `1,908,266` | Proves unauthorized callers are unconditionally rejected with `"Only router"` |
-| **Trail of Bits Invariants** | `test_Invariant_StakingSolvency_Fuzz` | **PASS** | `256 runs` (`μ: 925,306`) | Proves 100% staking & ETH yield solvency across 256 fuzz runs (with 0h default unstake lock) |
+| **Trail of Bits Invariants** | `test_Invariant_OpenVRF_RouterExclusivity` | **PASS** | `1,905,528` | Proves unauthorized callers are unconditionally rejected with `"Only router"` |
+| **Trail of Bits Invariants** | `test_Invariant_StakingSolvency_Fuzz` | **PASS** | `256 runs` (`μ: 925,289`) | Proves 100% staking & ETH yield solvency across 256 fuzz runs (with 0h default unstake lock) |
 | **Trail of Bits Invariants** | `test_Invariant_StakingUnallocatedYieldBuffered` | **PASS** | `839,470` | Validates pre-stake `unallocatedYield` buffer & `[0.1%, 2.0%]` (`1M`–`20M $IRL`) tier bounds |
-| **Programmable & Launch Tax** | `test_LaunchWindow_OneTimeNonResettable_And24HourExpiry` | **PASS** | `1,630,433` | One-time `launchTimestamp` (`AlreadyLaunched` on retry) & auto-drop `10% -> 4%` after `24h` |
-| **Programmable & Launch Tax** | `test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent` | **PASS** | `2,875,164` | Exact wei split (`3.75%/3.75%/1.75%/0.45%/0.30%` -> `1.25%/1.25%/0.75%/0.45%/0.30%`) & `$100k MC` cutoff |
-| **Programmable & Launch Tax** | `test_LiquidityCustody_90PercentPermanentLock_10PercentMarketing_AndInitialBuy` | **PASS** | `5,301,651` | Verifies `900M` permanent LP lock (`PERMANENT_LOCKED_SALT`), `100M` marketing LP & `0.15 ETH` initial buy |
-| **Programmable & Launch Tax** | `test_UnclaimedRewards_ClaimableByRecipient_NotMovedToProtocol` | **PASS** | `2,313,790` | Failed ETH payouts credit `unclaimedRewards[recipient]` & are claimable via `claimUnclaimedRewards()` |
-| **Programmable & Launch Tax** | `test_DelayedDraws_EpochIsolatedLotteryPots` | **PASS** | `2,984,470` | Delayed keeper draws strictly isolate `dailyPotByDay[dayId]` and `weeklyPotByWeek[weekId]` |
-| **Programmable & Launch Tax** | `test_AntiWhale_AutoDisableAt50kMarketCap` | **PASS** | `1,443,756` | `1%` Max TX and `2%` Max Wallet limits auto-disable permanently at `$50k MC` (`2.5x` launch) |
-| **Programmable & Launch Tax** | `test_NFTTicket_OnChainHoldingCapEnforced` | **PASS** | `4,334,801` | Enforces dynamic weekly NFT holding caps (`42` to `70` tickets) on secondary P2P transfers |
+| **Programmable & Launch Tax** | `test_LaunchWindow_OneTimeNonResettable_And24HourExpiry` | **PASS** | `1,631,384` | One-time `launchTimestamp` (`AlreadyLaunched` on retry) & auto-drop `10% -> 4%` after `24h` |
+| **Programmable & Launch Tax** | `test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent` | **PASS** | `3,102,309` | Exact wei split (`3.75%/3.75%/1.70%/0.50%/0.30%` -> `1.25%/1.25%/1.00%/0.20%/0.30%`) & fixed `$100k MC` cutoff |
+| **Programmable & Launch Tax** | `test_LiquidityCustody_90PercentPermanentLock_10PercentMarketing_AndInitialBuy` | **PASS** | `5,302,686` | Verifies `900M` permanent LP lock (`PERMANENT_LOCKED_SALT`), `100M` marketing LP & `0.15 ETH` initial buy |
+| **Programmable & Launch Tax** | `test_AntiWhale_BuyCapEnforced_And2PercentBoundaryHolderCanSellViaRouter` | **PASS** | `2,231,212` | Enforces `2%` (`20M $IRL`) wallet cap on buys (`irlDelta > 0`) & proves `2%` boundary holder sells via router |
+| **Programmable & Launch Tax** | `test_ProgrammableFee_30BpsOnceOnBuySellAndInternalBuyback` | **PASS** | `2,178,998` | Verifies exact `30 bps` (`0.30%`) Programmable fee delta once on Normal Buy, Normal Sell & Internal Buyback |
+| **Programmable & Launch Tax** | `test_UnclaimedRewards_ClaimableByRecipient_NotMovedToProtocol` | **PASS** | `2,325,714` | Failed ETH payouts credit `unclaimedRewards[recipient]` & are claimable via `claimUnclaimedRewards()` |
+| **Programmable & Launch Tax** | `test_DelayedDraws_EpochIsolatedLotteryPots` | **PASS** | `2,986,442` | Delayed keeper draws strictly isolate `dailyPotByDay[dayId]` and `weeklyPotByWeek[weekId]` |
+| **Programmable & Launch Tax** | `test_AntiWhale_AutoDisableAt50kMarketCap` | **PASS** | `1,584,673` | `1%` Max TX and `2%` Max Wallet limits auto-disable permanently at fixed `$50k MC` (`2.5x` launch) |
+| **Programmable & Launch Tax** | `test_NFTTicket_OnChainHoldingCapEnforced` | **PASS** | `4,334,823` | Enforces dynamic weekly NFT holding caps (`42` to `70` tickets) on secondary P2P transfers |
 | **OpenVRF Integration** | `test_OpenVRF_Deployment_Parameters` | **PASS** | `35,232` | Native OpenVRF coordinator initialization, owner, relayer authorization & 0 base fees |
 | **OpenVRF Integration** | `test_OpenVRF_ConsumerAuthorization` | **PASS** | `149,566` | Strict access control on consumers and callback gas limit boundaries (`25k`–`1M` gas) |
-| **OpenVRF Integration** | `test_OpenVRF_CryptographicDrandFulfillment` | **PASS** | `512,544` | Real Drand round 1000 BLS cryptographic signature verification via EVM pairing precompiles |
-| **OpenVRF Integration** | `test_IRLUniswapV4Hook_DailyLottery_EndToEndWithOpenVRF` | **PASS** | `2,523,744` | Full 24h daily draw: swaps -> tax -> tickets -> upkeep -> OpenVRF -> instant ETH payout |
-| **OpenVRF Integration** | `test_IRLUniswapV4Hook_SundayMegaJackpot_EndToEndWithOpenVRF` | **PASS** | `3,710,561` | Full 7-day Sunday Mega-Jackpot draw with multiple traders, upkeep and OpenVRF distribution |
-| **OpenVRF Integration** | `test_Security_UnauthorizedCallerCannotSpoofRandomness` | **PASS** | `34,808` | Hook rejects unauthorized callers attempting to spoof randomness with `"Only router"` |
-| **Stress & Validation** | `testStaking_HalfTierAndLinearCalculations` | **PASS** | `3,180,501` | Hybrid staking claim (Instant Claim locks 24h vs ≥24h Mature Claim 0h lock) & Real Yield claim |
-| **Stress & Validation** | `testMarketplace_2PercentLotteryTaxRouting_DailyAndWeeklyVsWeeklyOnly` | **PASS** | `1,699,061` | P2P Marketplace 2% Lottery Tax routing (50/50 Daily+Sunday vs 100% Sunday Mega-Jackpot) |
-| **Stress & Validation** | `testFeeDistribution_PreciseWeiCalculationsAcrossTxSizes` | **PASS** | `1,353,981` | Exact swap tax distribution down to the single wei across `0.1 ETH`, `1.0 ETH`, and `10.0 ETH` swaps |
-| **Stress & Validation** | `testNFTVolumeLimits_NonStakerVsHalfStakerVsFullStaker` | **PASS** | `4,113,353` | Strict daily volume ticket caps (`6` for `0%`, `8` for `1%`, `10` for `2%`) with zero excess minting |
-| **Stress & Validation** | `testHourlyRewards_MassiveBatchQueueStressTest_60Traders` | **PASS** | `47,811,793` | Queue stress test with 60+ traders exceeding 50-item batch limit, proving Top 10 + cashback payout |
-| **Stress & Validation** | `testDailyAndWeeklyLottery_MassiveScale_50Traders` | **PASS** | `145,854,003` | Massive dual lottery with 50 traders generating hundreds of tickets over 7 days with OpenVRF payouts |
-| **Stress & Validation** | `testTelegramBot_AllContractViewQueries` | **PASS** | `1,347,721` | Validates all RPC read methods invoked by `bot/index.js` (`dailyLotteryPot`, `sundayMegaPot`, etc.) |
-| **Stress & Validation** | `testDeveloperVault_SingleSidedLPRugProofAndWETHClaim` | **PASS** | `3,715,356` | Single-Sided LP anti-rug tick invariant and fee collection of accumulated WETH to dev wallet |
-| **Stress & Validation** | `testSecurityFixes_AuditRemediationSuite` | **PASS** | `2,676,095` | Validates `performUpkeep` guards, Hybrid 24h claim lock, hourly V4 `WETH -> $IRL` buyback & Exact-Out swaps |
-| **Protocol Scenarios** | `testSimulation_1Day_HourlyAndDailyDraw` | **PASS** | `52,108,069` | 24 consecutive hours of trading, volume rewards, midnight OpenVRF randomness fulfillment, and winner payout |
-| **Protocol Scenarios** | `testSimulation_1Week_DailyDrawsAndSundayMegaJackpot` | **PASS** | `10,919,812` | 7 daily cycles, 4-day epoch staking ticket claims, zero-trade rollover to Sunday, and Sunday Mega-Jackpot |
-| **Protocol Scenarios** | `testSimulation_1Month_ContinuousFlywheel` | **PASS** | `57,597,603` | 30-day flywheel, continuous staking yield in native ETH, and hourly batched `0.45%` V4 buyback & burn to `0xdead` |
-| **Protocol Scenarios** | `testSecurityHardening_RevertingWinnerAndFallbackPots` | **PASS** | `3,493,334` | Reverting winner contract safely credits `unclaimedRewards[winner]` without blocking OpenVRF callback |
-| **Hook Unit Tests** | `testAfterSwapTracksVolume` | **PASS** | `1,448,003` | Hook `_afterSwap` volume accumulation and volume-weighted trader scoring |
-| **Hook Unit Tests** | `testDailyVolumeLimitsNonStakerVsStaker` | **PASS** | `3,261,780` | Daily ticket quotas (`6` vs `10`) and weekly holding quotas (`42` vs `70`) |
-| **Hook Unit Tests** | `testStakerTicketVolumeMultiplierAnd4DayEpoch` | **PASS** | `2,410,745` | Staking multipliers (`+50%`), Hybrid 24h claim, and 4-day epoch free ticket claims |
-| **Ecosystem Simulation** | `testProgrammableFeeRoutingAndClaiming` | **PASS** | `2,190,661` | Immutable `0.30%` fee forwarding to Programmable.market, buffer accumulation, and claiming |
-| **Ecosystem Simulation** | `testFullSimulationWithLogs` | **PASS** | `3,136,038` | End-to-end trace with detailed console logging across swaps and distributions |
-| **Ecosystem Simulation** | `testMassiveSimulation` | **PASS** | `517,095,973` | Multi-agent heavy trading simulation validating long-term protocol solvency |
+| **OpenVRF Integration** | `test_OpenVRF_CryptographicDrandFulfillment` | **PASS** | `512,478` | Real Drand round 1000 BLS cryptographic signature verification via EVM pairing precompiles |
+| **OpenVRF Integration** | `test_IRLUniswapV4Hook_DailyLottery_EndToEndWithOpenVRF` | **PASS** | `2,523,370` | Full 24h daily draw: swaps -> tax -> tickets -> upkeep -> OpenVRF -> instant ETH payout |
+| **OpenVRF Integration** | `test_IRLUniswapV4Hook_SundayMegaJackpot_EndToEndWithOpenVRF` | **PASS** | `3,709,945` | Full 7-day Sunday Mega-Jackpot draw with multiple traders, upkeep and OpenVRF distribution |
+| **OpenVRF Integration** | `test_Security_UnauthorizedCallerCannotSpoofRandomness` | **PASS** | `34,742` | Hook rejects unauthorized callers attempting to spoof randomness with `"Only router"` |
+| **Stress & Validation** | `testStaking_HalfTierAndLinearCalculations` | **PASS** | `3,179,885` | Hybrid staking claim (Instant Claim locks 24h vs ≥24h Mature Claim 0h lock) & Real Yield claim |
+| **Stress & Validation** | `testMarketplace_2PercentLotteryTaxRouting_DailyAndWeeklyVsWeeklyOnly` | **PASS** | `1,698,643` | P2P Marketplace 2% Lottery Tax routing (50/50 Daily+Sunday vs 100% Sunday Mega-Jackpot) |
+| **Stress & Validation** | `testFeeDistribution_PreciseWeiCalculationsAcrossTxSizes` | **PASS** | `1,353,585` | Exact swap tax distribution down to the single wei (`0.30%` Prog, `1.25%` Hourly, `1.25%` Lottery, `1.00%` Protocol, `0.20%` Burn) |
+| **Stress & Validation** | `testNFTVolumeLimits_NonStakerVsHalfStakerVsFullStaker` | **PASS** | `4,112,913` | Strict daily volume ticket caps (`6` for `0%`, `8` for `1%`, `10` for `2%`) with zero excess minting |
+| **Stress & Validation** | `testHourlyRewards_MassiveBatchQueueStressTest_60Traders` | **PASS** | `47,815,681` | Queue stress test with 60+ traders exceeding 50-item batch limit, proving Top 10 + cashback payout |
+| **Stress & Validation** | `testDailyAndWeeklyLottery_MassiveScale_50Traders` | **PASS** | `145,829,957` | Massive dual lottery with 50 traders generating hundreds of tickets over 7 days with OpenVRF payouts |
+| **Stress & Validation** | `testTelegramBot_AllContractViewQueries` | **PASS** | `1,347,325` | Validates all RPC read methods invoked by `bot/index.js` (`dailyLotteryPot`, `sundayMegaPot`, etc.) |
+| **Stress & Validation** | `testDeveloperVault_SingleSidedLPRugProofAndWETHClaim` | **PASS** | `3,714,806` | Single-Sided LP anti-rug tick invariant and fee collection of accumulated WETH to dev wallet |
+| **Stress & Validation** | `testSecurityFixes_AuditRemediationSuite` | **PASS** | `2,675,633` | Validates `performUpkeep` guards, Hybrid 24h claim lock, hourly V4 `WETH -> $IRL` buyback & Exact-Out swaps |
+| **Protocol Scenarios** | `testSimulation_1Day_HourlyAndDailyDraw` | **PASS** | `52,305,540` | 24 consecutive hours of trading, volume rewards, midnight OpenVRF randomness fulfillment, and winner payout |
+| **Protocol Scenarios** | `testSimulation_1Week_DailyDrawsAndSundayMegaJackpot` | **PASS** | `10,917,634` | 7 daily cycles, 4-day epoch staking ticket claims, zero-trade rollover to Sunday, and Sunday Mega-Jackpot |
+| **Protocol Scenarios** | `testSimulation_1Month_ContinuousFlywheel` | **PASS** | `57,598,694` | 30-day flywheel, continuous staking yield in native ETH, and hourly batched V4 buyback & burn to `0xdead` |
+| **Protocol Scenarios** | `testSecurityHardening_RevertingWinnerAndFallbackPots` | **PASS** | `3,503,447` | Reverting winner contract safely credits `unclaimedRewards[winner]` without blocking OpenVRF callback |
+| **Hook Unit Tests** | `testAfterSwapTracksVolume` | **PASS** | `1,447,849` | Hook `_afterSwap` volume accumulation and volume-weighted trader scoring |
+| **Hook Unit Tests** | `testDailyVolumeLimitsNonStakerVsStaker` | **PASS** | `3,261,296` | Daily ticket quotas (`6` vs `10`) and weekly holding quotas (`42` vs `70`) |
+| **Hook Unit Tests** | `testStakerTicketVolumeMultiplierAnd4DayEpoch` | **PASS** | `2,410,393` | Staking multipliers (`+50%`), Hybrid 24h claim, and 4-day epoch free ticket claims |
+| **Ecosystem Simulation** | `testProgrammableFeeRoutingAndClaiming` | **PASS** | `2,190,333` | Immutable `0.30%` fee forwarding to Programmable.market, buffer accumulation, and claiming |
+| **Ecosystem Simulation** | `testFullSimulationWithLogs` | **PASS** | `3,146,647` | End-to-end trace with detailed console logging across swaps and distributions |
+| **Ecosystem Simulation** | `testMassiveSimulation` | **PASS** | `517,029,334` | Multi-agent heavy trading simulation validating long-term protocol solvency |
 | **Position Manager** | `test_burn` | **PASS** | `655,943` | Uniswap V4 PositionManager position burning |
 | **Position Manager** | `test_decreaseLiquidity` | **PASS** | `664,842` | Uniswap V4 PositionManager liquidity reduction |
 | **Position Manager** | `test_increaseLiquidity` | **PASS** | `688,938` | Uniswap V4 PositionManager liquidity addition |

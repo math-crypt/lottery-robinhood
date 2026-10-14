@@ -57,12 +57,12 @@ import {AutomationCompatibleInterface} from "@chainlink/contracts/v0.8/automatio
  *      - 0.30% (30 bps) Immutable Programmable.market Platform Fee (0xD88539d3c4C460136a733A3Fd60cf6BF269079da)
  *      - 3.75% (375 bps) Hourly Volume & Real Yield (35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH)
  *      - 3.75% (375 bps) Dual Lottery Engine (50% Daily Strict Window via OpenVRF, 50% Sunday Mega-Jackpot)
- *      - 2.20% (220 bps) Protocol & Deflation (90% Protocol/Marketing upkeep, 10% Hourly Batched Buyback & Burn to 0xdead)
+ *      - 2.20% (220 bps) Protocol & Deflation (1.70% Protocol/Marketing upkeep, 0.50% Hourly Batched Buyback & Burn to 0xdead)
  *   2. Standard Cruise Phase (4.00% = 400 bps permanently thereafter):
  *      - 0.30% (30 bps) Immutable Programmable.market Platform Fee (0xD88539d3c4C460136a733A3Fd60cf6BF269079da)
  *      - 1.25% (125 bps) Hourly Volume & Real Yield (35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH)
  *      - 1.25% (125 bps) Dual Lottery Engine (50% Daily Strict Window via OpenVRF, 50% Sunday Mega-Jackpot)
- *      - 1.20% (120 bps) Protocol & Deflation (90% Protocol/Marketing upkeep, 10% Hourly Batched Buyback & Burn to 0xdead)
+ *      - 1.20% (120 bps) Protocol & Deflation (1.00% Protocol/Marketing upkeep, 0.20% Hourly Batched Buyback & Burn to 0xdead)
  * - Anti-Whale max tx & max wallet auto-removal at $50,000 Market Cap
  * - Epoch-isolated Daily (`dailyPotByDay`) and Weekly (`weeklyPotByWeek`) lottery accounting
  * - Pull-claimable `unclaimedRewards` for any failed ETH payout
@@ -105,8 +105,8 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     mapping(uint256 => uint256) public dailyPotByDay;
     mapping(uint256 => uint256) public weeklyPotByWeek;
     uint256 public hourlyRewardPot;
-    uint256 public protocolPot; // For VRF/Automation fees and Marketing (0.75% Standard / 1.75% Launch Boost)
-    uint256 public buybackPot; // 0.45% (45 bps) of every swap reserved for hourly V4 buyback & burn (0.15% Prog + 0.45% = 0.60% total burn)
+    uint256 public protocolPot; // For VRF/Automation fees and Marketing (1.00% Standard / 1.70% Launch Boost)
+    uint256 public buybackPot; // 0.20% Standard (20 bps) / 0.50% Launch Boost (50 bps) reserved for hourly V4 buyback & burn to 0xdead
     uint256 public lastBuybackHour; // Enforces 1-hour batching for protocol buyback & burn
     mapping(uint256 => uint256) public hourlyPotByHour;
     mapping(uint256 => uint256) public vrfRequestPrize;
@@ -157,14 +157,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         emit CallbackGasLimitUpdated(_gasLimit);
     }
 
-    function setDisableAntiWhalePrice(uint160 _price) external onlyOwner {
-        disableAntiWhaleSqrtPrice = _price;
-    }
-
-    function setDisableLaunchTaxPrice(uint160 _price) external onlyOwner {
-        disableLaunchTaxSqrtPrice = _price;
-    }
-
     /**
      * @notice Permanently disables the 10% Launch Boost Tax (one-way transition to 4% Standard Tax).
      *         Cannot be re-enabled once disabled.
@@ -190,13 +182,16 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Configures the auto-disable price thresholds from starting price at 20k Market Cap:
+     * @notice Configures the fixed, one-time auto-disable price thresholds from starting price at 20k Market Cap:
      * - 50k Market Cap (2.5x initial price, sqrt(2.5) ~= 1.58113883): auto-lifts Max TX & Max Wallet limits.
      * - 100k Market Cap (5.0x initial price, sqrt(5.0) ~= 2.23606798): auto-switches tax from 10% Launch Boost to 4% Standard.
+     * Cannot be called again once initialized.
      * @param initialSqrtPrice The pool's initial sqrtPriceX96 at 20k Market Cap.
      * @param isIrlToken0 True if IRL is token0, false if WETH is token0.
      */
     function setDisableAntiWhaleFromInitialPrice(uint160 initialSqrtPrice, bool isIrlToken0) external onlyOwner {
+        require(disableAntiWhaleSqrtPrice == 0 && disableLaunchTaxSqrtPrice == 0, "CutoffsAlreadyInitialized");
+        require(initialSqrtPrice > 0, "InvalidInitialPrice");
         if (isIrlToken0) {
             // Price = WETH / IRL.
             // 50k MC (2.5x) -> sqrtPrice increases by sqrt(2.5) ~= 1.58113883
@@ -399,8 +394,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     }
 
     /**
-     * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved 0.45% (45 bps) swap buyback pot
-     * and permanently burns the purchased $IRL tokens to 0xdead (0.15% Programmable burn + 0.45% = 0.60% total burn).
+     * @notice Executes an automatic Uniswap V4 buyback of $IRL using the reserved swap buyback pot
+     * (0.50% during Launch Boost / 0.20% during Standard Tax), deducts Programmable.market's 0.30% (30 bps)
+     * platform fee once, and permanently burns the purchased $IRL tokens to 0xdead.
      * Batched once per hour so the price chart is never spammed with micro-buybacks on every trade.
      */
     function executeBuybackAndBurn() external nonReentrant {
@@ -417,16 +413,22 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         buybackPot = 0;
         lastBuybackHour = block.timestamp / 1 hours;
 
-        _inBuyback = true;
-        weth.deposit{value: amount}();
-        poolManager.unlock(abi.encode(amount));
-        _inBuyback = false;
+        uint256 progFee = (amount * PROGRAMMABLE_FEE_BPS) / 10_000;
+        uint256 swapAmount = amount - progFee;
+        _sendProgrammableFee(progFee);
+
+        if (swapAmount > 0) {
+            _inBuyback = true;
+            weth.deposit{value: swapAmount}();
+            poolManager.unlock(abi.encode(swapAmount));
+            _inBuyback = false;
+        }
 
         emit BuybackAndBurnExecuted(amount);
     }
 
     /**
-     * @notice PoolManager unlock callback executing the zero-tax WETH -> $IRL buyback swap to 0xdead.
+     * @notice PoolManager unlock callback executing the internal WETH -> $IRL buyback swap to 0xdead.
      */
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         require(msg.sender == address(poolManager), "Only PoolManager");
@@ -463,30 +465,6 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         }
 
         return abi.encode(irlBought);
-    }
-
-    /**
-     * @notice Allows executing buyback swap via external DEX router and verifies $IRL is burned to 0xdead.
-     */
-    function executeBuybackWithRouter(address router, bytes calldata data) external onlyOwner nonReentrant {
-        uint256 amount = buybackPot;
-        require(amount > 0, "No buyback pot to execute");
-        require(router != address(0) && router != msg.sender, "Invalid router");
-        buybackPot = 0;
-
-        bool zeroForOne = (Currency.unwrap(activePoolKey.currency0) == address(weth));
-        address irlAddr = zeroForOne
-            ? Currency.unwrap(activePoolKey.currency1)
-            : Currency.unwrap(activePoolKey.currency0);
-        uint256 deadBefore = irlAddr != address(0) ? IERC20(irlAddr).balanceOf(DEAD_ADDRESS) : 0;
-
-        (bool success, ) = router.call{value: amount}(data);
-        require(success, "Router buyback call failed");
-
-        if (irlAddr != address(0)) {
-            require(IERC20(irlAddr).balanceOf(DEAD_ADDRESS) > deadBefore, "No IRL burned to 0xdead");
-        }
-        emit BuybackAndBurnExecuted(amount);
     }
 
     /**
@@ -631,22 +609,22 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
     /**
      * @dev Distributes swap fees across Programmable.market (immutable 0.30%) and all ecosystem pots:
      * - Launch Boost 10.00% mode (isLaunchBoost = true, 1000 bps total):
-     *   - 0.30% (30/1000 of fee) -> Programmable.market (0.15% burned + 0.15% treasury)
+     *   - 0.30% (30/1000 of fee) -> Programmable.market Platform Fee
      *   - 3.75% (375/1000 of fee) -> Hourly Pot (35% Top 10, 35% Cashback, 30% Stakers Real Yield)
      *   - 3.75% (375/1000 of fee) -> Dual Lottery Pot (1.875% Daily, 1.875% Sunday Mega-Jackpot)
-     *   - 2.20% (220/1000 of fee) -> Protocol & Deflation (1.75% Protocol, 0.45% Hourly Batched Burn -> 0.60% total burn/tx)
+     *   - 2.20% (220/1000 of fee) -> Protocol & Deflation (1.70% Protocol Pot, 0.50% Hourly Batched Buyback & Burn to 0xdead)
      * - Standard Cruise 4.00% mode (isLaunchBoost = false, 400 bps total):
-     *   - 0.30% (30/400 of fee) -> Programmable.market (0.15% burned + 0.15% treasury)
+     *   - 0.30% (30/400 of fee) -> Programmable.market Platform Fee
      *   - 1.25% (125/400 of fee) -> Hourly Pot (35% Top 10, 35% Cashback, 30% Stakers Real Yield)
      *   - 1.25% (125/400 of fee) -> Dual Lottery Pot (0.625% Daily, 0.625% Sunday Mega-Jackpot)
-     *   - 1.20% (120/400 of fee) -> Protocol & Deflation (0.75% Protocol, 0.45% Hourly Batched Burn -> 0.60% total burn/tx)
+     *   - 1.20% (120/400 of fee) -> Protocol & Deflation (1.00% Protocol Pot, 0.20% Hourly Batched Buyback & Burn to 0xdead)
      */
     function _distributeEcosystemFees(uint256 feeAmount, address trader, bool isLaunchBoost) internal {
         uint256 progFee = isLaunchBoost ? (feeAmount * 30) / 1000 : (feeAmount * 30) / 400;
         uint256 hourlyTotal = isLaunchBoost ? (feeAmount * 375) / 1000 : (feeAmount * 125) / 400;
         uint256 lotteryTotal = hourlyTotal;
 
-        // 1. Immutable Programmable.market Fee (0.30% of swap: 0.15% burn + 0.15% treasury)
+        // 1. Immutable Programmable.market Fee (0.30% of swap)
         _sendProgrammableFee(progFee);
 
         // 2. Hourly Reward Pot (35% Top 10, 35% Active Swappers Cashback, 30% Stakers Real Yield in ETH)
@@ -675,9 +653,9 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
         dailyPotByDay[currentDay] += (lotteryTotal - sundayShare);
         weeklyPotByWeek[currentWeek] += sundayShare;
 
-        // 4. Protocol & Deflation Pot (0.45% of swap to Hourly Batched Buyback & Burn + remainder to Protocol Pot)
+        // 4. Protocol & Deflation Pot (0.50% Launch Boost / 0.20% Standard to Hourly Batched Buyback & Burn + 1.70% / 1.00% to Protocol Pot)
         uint256 protocolTotal = feeAmount - progFee - hourlyTotal - lotteryTotal;
-        uint256 buybackShare = isLaunchBoost ? (feeAmount * 45) / 1000 : (feeAmount * 45) / 400;
+        uint256 buybackShare = isLaunchBoost ? (feeAmount * 50) / 1000 : (feeAmount * 20) / 400;
         protocolPot += (protocolTotal - buybackShare);
         buybackPot += buybackShare;
     }
@@ -788,21 +766,23 @@ contract IRLUniswapV4Hook is BaseHook, AutomationCompatibleInterface, IRLRandomn
 
     /**
      * @dev Enforces Anti-Whale limits (Max TX 1%, Max Wallet 2%) and auto-disables at 50k MC.
-     *      Permits the atomic initial buy at `block.timestamp == launchTimestamp` up to `MAX_WALLET_AMOUNT` (2%).
+     *      In Uniswap V4 BalanceDelta, positive IRL delta (`irlDelta > 0`) is a buy (IRL out of pool to trader)
+     *      and negative IRL delta (`irlDelta < 0`) is a sell (IRL paid into pool by trader).
+     *      During `_afterSwap` (before router `take`/`settle`), `balanceOf(trader)` is the pre-swap balance,
+     *      so `balanceOf(trader) + tokenAmount <= MAX_WALLET_AMOUNT` applies strictly on buys (`irlDelta > 0`),
+     *      while sells (`irlDelta < 0`) only enforce `tokenAmount <= MAX_TX_AMOUNT`.
      */
     function _enforceAntiWhale(PoolKey calldata key, BalanceDelta delta, address trader) internal {
         bool isWeth0 = (Currency.unwrap(key.currency0) == address(weth));
-        uint256 tokenAmount = isWeth0
-            ? uint256(int256(delta.amount1() < 0 ? -delta.amount1() : delta.amount1()))
-            : uint256(int256(delta.amount0() < 0 ? -delta.amount0() : delta.amount0()));
-        
+        int128 irlDelta = isWeth0 ? delta.amount1() : delta.amount0();
+        uint256 tokenAmount = uint256(int256(irlDelta < 0 ? -irlDelta : irlDelta));
+
         bool isAtomicInitialBuy = (block.timestamp == launchTimestamp && trader == owner());
         if (!isAtomicInitialBuy) {
             require(tokenAmount <= MAX_TX_AMOUNT, "Anti-Whale: Max TX exceeded");
         }
 
-        bool isBuy = isWeth0 ? (delta.amount1() < 0) : (delta.amount0() < 0);
-        if (isBuy && trader != address(0)) {
+        if (irlDelta > 0 && trader != address(0)) {
             address irlTokenAddr = isWeth0 ? Currency.unwrap(key.currency1) : Currency.unwrap(key.currency0);
             require(
                 IERC20(irlTokenAddr).balanceOf(trader) + tokenAmount <= MAX_WALLET_AMOUNT,
