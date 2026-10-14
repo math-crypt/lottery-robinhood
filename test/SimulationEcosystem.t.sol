@@ -403,11 +403,15 @@ contract SimulationEcosystemTest is BaseTest {
     }
 
     function testProgrammableFeeRoutingAndClaiming() public {
-        address programmableRecipient = address(0xCAFE);
-        
-        // 1. Initial state: recipient is address(0), pot is 0
-        assertEq(hook.programmableFeeRecipient(), address(0));
+        address programmableRecipient = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da;
+
+        // 1. Initial state: recipient is hardcoded to 0xD88539d3c4C460136a733A3Fd60cf6BF269079da, pot is 0
+        assertEq(hook.programmableFeeRecipient(), programmableRecipient);
+        assertEq(hook.PROGRAMMABLE_FEE_RECIPIENT(), programmableRecipient);
+        assertEq(hook.PROGRAMMABLE_FEE_BPS(), 30);
         assertEq(hook.programmableFeePot(), 0);
+
+        uint256 recipientEthBefore = programmableRecipient.balance;
 
         // Perform 1 ETH swap from Alice
         vm.startPrank(alice);
@@ -416,7 +420,7 @@ contract SimulationEcosystemTest is BaseTest {
         weth.approve(address(permit2), type(uint256).max);
         permit2.approve(address(weth), address(swapRouter), type(uint160).max, type(uint48).max);
         bool zeroForOne = address(weth) < address(irl);
-        
+
         swapRouter.swapExactTokensForTokens({
             amountIn: 1.0 ether,
             amountOutMin: 0,
@@ -428,20 +432,11 @@ contract SimulationEcosystemTest is BaseTest {
         });
         vm.stopPrank();
 
-        // 4% total tax = 0.04 ETH. Programmable share (1%) = 0.01 ETH.
-        uint256 progPot = hook.programmableFeePot();
-        assertEq(progPot, 0.01 ether);
-
-        // 2. Set Programmable recipient and test claiming accumulated fees
-        hook.setProgrammableFeeRecipient(programmableRecipient);
-        assertEq(hook.programmableFeeRecipient(), programmableRecipient);
-
-        uint256 recipientEthBefore = programmableRecipient.balance;
-        hook.claimProgrammableFees();
+        // 4% total tax = 0.04 ETH. Programmable share (0.30%) = 0.003 ETH routed directly.
+        assertEq(programmableRecipient.balance - recipientEthBefore, 0.003 ether);
         assertEq(hook.programmableFeePot(), 0);
-        assertEq(programmableRecipient.balance - recipientEthBefore, 0.01 ether);
 
-        // 3. Test direct automatic routing on subsequent swaps when recipient is configured
+        // 2. Test direct automatic routing on subsequent swaps
         vm.startPrank(bob);
         weth.deposit{value: 2.0 ether}();
         weth.approve(address(swapRouter), type(uint256).max);
@@ -460,8 +455,8 @@ contract SimulationEcosystemTest is BaseTest {
         });
         vm.stopPrank();
 
-        // 2 ETH swap * 4% tax = 0.08 ETH. Programmable 1% = 0.02 ETH routed directly!
-        assertEq(programmableRecipient.balance - recipientEthBeforeBob, 0.02 ether);
+        // 2 ETH swap * 4% tax = 0.08 ETH. Programmable 0.30% = 0.006 ETH routed directly!
+        assertEq(programmableRecipient.balance - recipientEthBeforeBob, 0.006 ether);
         assertEq(hook.programmableFeePot(), 0);
     }
 }

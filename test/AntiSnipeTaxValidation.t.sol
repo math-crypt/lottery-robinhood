@@ -22,6 +22,7 @@ import {IRLUniswapV4Hook} from "../src/IRLUniswapV4Hook.sol";
 import {IRLTicketNFT} from "../src/IRLTicketNFT.sol";
 import {InternetRobinLottery} from "../src/InternetRobinLottery.sol";
 import {IRLStaking} from "../src/IRLStaking.sol";
+import {IRLMarketingVault} from "../src/IRLMarketingVault.sol";
 import {OpenVRF} from "openvrf/OpenVRF.sol";
 
 contract MockWETHAntiSnipe {
@@ -63,10 +64,19 @@ contract MockWETHAntiSnipe {
     }
 }
 
-contract RejectingDevWallet {
-    // Rejects incoming native ETH to test fallback buffer pot
+contract ToggleableEthRecipient {
+    bool public acceptEth = false;
+
+    function setAcceptEth(bool _accept) external {
+        acceptEth = _accept;
+    }
+
+    function claimFromHook(IRLUniswapV4Hook hook) external {
+        hook.claimUnclaimedRewards();
+    }
+
     receive() external payable {
-        revert("Rejecting dev ETH");
+        require(acceptEth, "Temporarily rejecting ETH");
     }
 }
 
@@ -85,23 +95,24 @@ contract AntiSnipeTaxValidationTest is BaseTest {
     IRLTicketNFT nft;
     InternetRobinLottery irl;
     IRLStaking staking;
+    IRLMarketingVault vault;
     MockWETHAntiSnipe weth;
     OpenVRF openVrf;
 
     address deployer = address(0xAA11);
-    address devWallet = address(0xDE77);
-    address progRecipient = address(0xBB99);
-    address whitelistedTrader = address(0xCC33);
-    address sniper = address(0x5511);
+    address progRecipient = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da;
+    address traderA = address(0xCC33);
+    address traderB = address(0x5511);
 
     uint256 tokenId;
 
     function setUp() public {
+        vm.warp(1_728_000_000);
         deployArtifactsAndLabel();
 
         vm.deal(deployer, 1000 ether);
-        vm.deal(whitelistedTrader, 100 ether);
-        vm.deal(sniper, 100 ether);
+        vm.deal(traderA, 100 ether);
+        vm.deal(traderB, 100 ether);
 
         vm.startPrank(deployer);
 
@@ -110,6 +121,7 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         irl = new InternetRobinLottery(deployer, 1_000_000_000 ether);
         nft = new IRLTicketNFT(deployer);
         staking = new IRLStaking(address(irl));
+        vault = new IRLMarketingVault(address(poolManager), address(positionManager), address(irl));
 
         if (address(irl) < address(weth)) {
             currency0 = Currency.wrap(address(irl));
@@ -120,18 +132,18 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         }
 
         uint160 hookFlags = uint160(
-            Hooks.BEFORE_SWAP_FLAG | 
-            Hooks.AFTER_SWAP_FLAG | 
-            Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG | 
+            Hooks.BEFORE_SWAP_FLAG |
+            Hooks.AFTER_SWAP_FLAG |
+            Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG |
             Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         address flags = address(hookFlags ^ (0x7777 << 144));
 
         bytes memory constructorArgs = abi.encode(
-            poolManager, 
-            address(nft), 
-            address(staking), 
-            address(openVrf), 
+            poolManager,
+            address(nft),
+            address(staking),
+            address(openVrf),
             address(weth)
         );
         deployCodeTo("IRLUniswapV4Hook.sol:IRLUniswapV4Hook", constructorArgs, flags);
@@ -139,13 +151,6 @@ contract AntiSnipeTaxValidationTest is BaseTest {
 
         nft.transferOwnership(address(hook));
         openVrf.setConsumerAuthorization(address(hook), true);
-
-        // Configure dev wallet & programmable recipient
-        hook.setDevWallet(devWallet);
-        hook.setProgrammableFeeRecipient(progRecipient);
-
-        // Configure Whitelist
-        hook.setAntiSnipeWhitelist(whitelistedTrader, true);
 
         // Create and initialize pool
         poolKey = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
@@ -191,14 +196,14 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         vm.stopPrank();
 
         // Setup traders with deposits and Permit2 approvals
-        vm.startPrank(whitelistedTrader);
+        vm.startPrank(traderA);
         weth.deposit{value: 10 ether}();
         weth.approve(address(permit2), type(uint256).max);
         weth.approve(address(swapRouter), type(uint256).max);
         permit2.approve(address(weth), address(swapRouter), type(uint160).max, type(uint48).max);
         vm.stopPrank();
 
-        vm.startPrank(sniper);
+        vm.startPrank(traderB);
         weth.deposit{value: 10 ether}();
         weth.approve(address(permit2), type(uint256).max);
         weth.approve(address(swapRouter), type(uint256).max);
@@ -206,354 +211,52 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         vm.stopPrank();
     }
 
-    function test_AntiSnipe_WhitelistedAddress_PaysNormalTax() public {
+    function test_LaunchWindow_OneTimeNonResettable_And24HourExpiry() public {
         vm.startPrank(deployer);
+        hook.launch();
+
+        // Owner cannot restart the launch window
+        vm.expectRevert("AlreadyLaunched");
         hook.launch();
         vm.stopPrank();
 
-        uint256 devBalBefore = devWallet.balance;
-        uint256 progBalBefore = progRecipient.balance;
+        assertTrue(hook.isLaunchTaxActive(), "Launch Boost Tax must be active immediately after launch");
 
-        // Whitelisted trader swaps 1.0 WETH for IRL tokens during the first minute (at t=10s)
-        vm.warp(hook.launchTimestamp() + 10);
+        // Fast-forward 24 hours + 1 second without reaching 100k MC
+        vm.warp(hook.launchTimestamp() + hook.LAUNCH_TAX_DURATION() + 1);
+        assertFalse(hook.isLaunchTaxActive(), "Launch Boost Tax view must report false after 24 hours");
 
-        vm.startPrank(whitelistedTrader);
-        deal(Currency.unwrap(currency0), whitelistedTrader, 10 ether);
-        deal(Currency.unwrap(currency1), whitelistedTrader, 10 ether);
+        uint256 progBefore = progRecipient.balance;
+        uint256 dailyBefore = hook.dailyLotteryPot();
+        uint256 protocolBefore = hook.protocolPot();
+        uint256 burnBefore = hook.buybackPot();
 
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+        vm.startPrank(traderA);
+        deal(Currency.unwrap(currency0), traderA, 10 ether);
+        deal(Currency.unwrap(currency1), traderA, 10 ether);
 
         swapRouter.swapExactTokensForTokens({
             amountIn: 1.0 ether,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
-            hookData: abi.encode(whitelistedTrader),
-            receiver: whitelistedTrader,
-            deadline: block.timestamp + 1
+            hookData: abi.encode(traderA),
+            receiver: traderA,
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
-        // 1. Dev wallet should NOT receive 90% snipe tax
-        assertEq(devWallet.balance - devBalBefore, 0, "Whitelisted trader should not trigger 90% dev tax");
-
-        // 2. Programmable.market receives standard 1% tax (0.01 WETH)
-        assertEq(progRecipient.balance - progBalBefore, 0.01 ether, "Programmable receives standard 1% fee");
-
-        // 3. Whitelisted trader receives volume & leaderboard score
-        uint256 hourId = block.timestamp / 1 hours;
-        assertGt(hook.userVolumePerHour(hourId, whitelistedTrader), 0, "Whitelisted trader should have volume recorded");
-        assertGt(hook.userHourlyScore(hourId, whitelistedTrader), 0, "Whitelisted trader should have score recorded");
-    }
-
-    function test_AntiSnipe_NonWhitelistedSniper_Pays90PercentDevAnd1PercentProg() public {
-        vm.startPrank(deployer);
-        hook.launch();
-        vm.stopPrank();
-
-        uint256 devBalBefore = devWallet.balance;
-        uint256 progBalBefore = progRecipient.balance;
-
-        // Sniper swaps 1.0 WETH for IRL tokens in the first minute (at t=15s)
-        vm.warp(hook.launchTimestamp() + 15);
-
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // 1. Dev wallet receives EXACTLY 90% tax (0.90 ETH)
-        uint256 devReceived = devWallet.balance - devBalBefore;
-        assertEq(devReceived, 0.90 ether, "Dev wallet must receive exactly 90% of swap amount");
-
-        // 2. Programmable.market receives EXACTLY 1% tax (0.01 ETH)
-        uint256 progReceived = progRecipient.balance - progBalBefore;
-        assertEq(progReceived, 0.01 ether, "Programmable.market must receive exactly 1% of swap amount");
-
-        // 3. Sniper gets ZERO volume leaderboard score and ZERO NFT tickets
-        uint256 hourId = block.timestamp / 1 hours;
-        assertEq(hook.userVolumePerHour(hourId, sniper), 0, "Sniper must have 0 volume recorded");
-        assertEq(hook.userHourlyScore(hourId, sniper), 0, "Sniper must have 0 score recorded");
-        assertEq(nft.balanceOf(sniper), 0, "Sniper must receive 0 NFT tickets");
-    }
-
-    function test_AntiSnipe_AfterOneMinute_EveryonePaysNormalTax() public {
-        vm.startPrank(deployer);
-        hook.launch();
-        vm.stopPrank();
-
-        uint256 devBalBefore = devWallet.balance;
-        uint256 progBalBefore = progRecipient.balance;
-
-        // Fast-forward past the 1-minute anti-snipe window (t = launch + 65 seconds)
-        vm.warp(hook.launchTimestamp() + 65);
-
-        assertFalse(hook.isAntiSnipeActive(), "Anti-snipe window should be inactive after 1 minute");
-
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // 1. Dev wallet does NOT receive 90% (pays standard 4% tax to ecosystem pots)
-        assertEq(devWallet.balance - devBalBefore, 0, "Dev wallet must not receive 90% tax after 1 minute");
-
-        // 2. Programmable.market still receives 1% standard fee (0.01 ETH)
-        assertEq(progRecipient.balance - progBalBefore, 0.01 ether, "Programmable receives standard 1% fee");
-
-        // 3. Trader is now treated as legitimate: gets volume and tickets
-        uint256 hourId = block.timestamp / 1 hours;
-        assertGt(hook.userVolumePerHour(hourId, sniper), 0, "Volume should be recorded after anti-snipe expires");
-        assertGt(nft.balanceOf(sniper), 0, "NFT tickets should be minted after anti-snipe expires");
-    }
-
-    function test_AntiSnipe_RemoveLimitsDisablesAntiSnipeImmediately() public {
-        vm.startPrank(deployer);
-        hook.launch();
-        // Owner explicitly removes limits
-        hook.removeLimits();
-        vm.stopPrank();
-
-        assertFalse(hook.isAntiSnipeActive(), "Anti-snipe should be inactive when limits are removed");
-
-        uint256 devBalBefore = devWallet.balance;
-
-        // Sniper swaps within 10s of launch, but limits were removed
-        vm.warp(hook.launchTimestamp() + 10);
-
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        assertEq(devWallet.balance - devBalBefore, 0, "No 90% tax when limits are disabled");
-    }
-
-    function test_AntiSnipe_BatchWhitelist() public {
-        address[] memory addresses = new address[](3);
-        addresses[0] = address(0x1111);
-        addresses[1] = address(0x2222);
-        addresses[2] = address(0x3333);
-
-        vm.startPrank(deployer);
-        hook.setAntiSnipeWhitelistBatch(addresses, true);
-        vm.stopPrank();
-
-        assertTrue(hook.antiSnipeWhitelist(addresses[0]));
-        assertTrue(hook.antiSnipeWhitelist(addresses[1]));
-        assertTrue(hook.antiSnipeWhitelist(addresses[2]));
-
-        // Remove one address
-        vm.startPrank(deployer);
-        hook.setAntiSnipeWhitelist(addresses[1], false);
-        vm.stopPrank();
-
-        assertTrue(hook.antiSnipeWhitelist(addresses[0]));
-        assertFalse(hook.antiSnipeWhitelist(addresses[1]));
-        assertTrue(hook.antiSnipeWhitelist(addresses[2]));
-    }
-
-    function test_AntiSnipe_FallbackDevPotIfCallFails() public {
-        RejectingDevWallet rejectingWallet = new RejectingDevWallet();
-
-        vm.startPrank(deployer);
-        hook.setDevWallet(address(rejectingWallet));
-        hook.launch();
-        vm.stopPrank();
-
-        vm.warp(hook.launchTimestamp() + 5);
-
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-
-        // Swap must NOT revert even if dev wallet call fails
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // 90% tax safely buffered in devSnipeTaxPot
-        assertEq(hook.devSnipeTaxPot(), 0.90 ether, "Dev snipe tax must be safely stored in fallback pot");
-
-        // Owner or new dev wallet can claim it
-        address newDev = address(0x8888);
-        vm.startPrank(deployer);
-        hook.setDevWallet(newDev);
-        hook.claimDevSnipeTax();
-        vm.stopPrank();
-
-        assertEq(newDev.balance, 0.90 ether, "New dev wallet successfully claimed accumulated snipe fees");
-        assertEq(hook.devSnipeTaxPot(), 0, "Fallback pot must be reset to 0 after claim");
-    }
-
-    function test_AntiSnipe_AutoLaunchOnFirstSwap_WithoutManualCall() public {
-        // Confirm launchTimestamp is uninitialized (0)
-        assertEq(hook.launchTimestamp(), 0, "Launch timestamp must initially be 0");
-
-        uint256 devBalBefore = devWallet.balance;
-        uint256 progBalBefore = progRecipient.balance;
-
-        // Sniper swaps 1.0 WETH at t = 5000 WITHOUT the deployer ever calling hook.launch()
-        vm.warp(5000);
-
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // 1. launchTimestamp was automatically initialized on the first swap
-        assertEq(hook.launchTimestamp(), 5000, "launchTimestamp should auto-initialize on the first swap");
-
-        // 2. Sniper was caught and taxed 90% dev + 1% programmable
-        assertEq(devWallet.balance - devBalBefore, 0.90 ether, "Dev receives 90% automatically");
-        assertEq(progRecipient.balance - progBalBefore, 0.01 ether, "Programmable receives 1% automatically");
-
-        // 3. Sniper gets zero perks
-        assertEq(nft.balanceOf(sniper), 0, "Sniper receives 0 NFT tickets");
-    }
-
-    function test_AntiWhale_AutoDisableAt50kMarketCap() public {
-        // Set auto-disable price threshold from initial pool price (20k MC -> 50k MC = 2.5x increase)
-        bool isIrl0 = (address(irl) < address(weth));
-        vm.startPrank(deployer);
-        hook.setDisableAntiWhaleFromInitialPrice(Constants.SQRT_PRICE_1_1, isIrl0);
-        vm.stopPrank();
-
-        assertTrue(hook.limitsEnabled(), "Limits must be active before reaching 50k MC");
-        uint160 target50k = hook.disableAntiWhaleSqrtPrice();
-        assertGt(target50k, 0, "50k MC threshold must be configured");
-
-        // Simulate reaching 50k MC by calling setDisableAntiWhalePrice with current price
-        vm.startPrank(deployer);
-        hook.setDisableAntiWhalePrice(Constants.SQRT_PRICE_1_1);
-        vm.stopPrank();
-
-        // Whitelisted trader performs a swap to trigger tick update
-        vm.warp(hook.launchTimestamp() + 120);
-        vm.startPrank(whitelistedTrader);
-        deal(Currency.unwrap(currency0), whitelistedTrader, 10 ether);
-        deal(Currency.unwrap(currency1), whitelistedTrader, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 0.1 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(whitelistedTrader),
-            receiver: whitelistedTrader,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // Limits are now automatically disabled onchain
-        assertFalse(hook.limitsEnabled(), "Limits must be automatically disabled once 50k MC price is reached");
-    }
-
-    function test_AntiSnipe_SpoofedHookDataRejected() public {
-        vm.startPrank(deployer);
-        hook.launch();
-        vm.stopPrank();
-
-        uint256 devBalBefore = devWallet.balance;
-        vm.warp(hook.launchTimestamp() + 10);
-
-        // Sniper attempts to spoof address(hook) or deployer via hookData during the 60s Anti-Snipe window
-        vm.startPrank(sniper, sniper);
-        deal(Currency.unwrap(currency0), sniper, 10 ether);
-        deal(Currency.unwrap(currency1), sniper, 10 ether);
-
-        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
-        swapRouter.swapExactTokensForTokens({
-            amountIn: 1.0 ether,
-            amountOutMin: 0,
-            zeroForOne: zeroForOne,
-            poolKey: poolKey,
-            hookData: abi.encode(address(hook)),
-            receiver: sniper,
-            deadline: block.timestamp + 1
-        });
-        vm.stopPrank();
-
-        // Spoofed hookData is rejected; sniper is still taxed 90% to devWallet!
-        assertEq(devWallet.balance - devBalBefore, 0.90 ether, "Spoofing hook address via hookData must be rejected and taxed 90%");
-    }
-
-    function test_NFTTicket_OnChainHoldingCapEnforced() public {
-        IRLTicketNFT cappedNft = new IRLTicketNFT(deployer);
-        vm.startPrank(deployer);
-        // Mint 42 tickets to sniper (non-staker max weekly cap = 42) and 1 ticket to whitelistedTrader
-        for (uint256 i = 0; i < 42; i++) {
-            cappedNft.mintTicket(sniper);
-        }
-        uint256 extraTicketId = cappedNft.mintTicket(whitelistedTrader);
-        cappedNft.transferOwnership(address(hook));
-        vm.stopPrank();
-
-        assertEq(cappedNft.balanceOf(sniper), 42);
-
-        // Secondary transfer of the 43rd ticket to non-staker must revert on-chain
-        vm.startPrank(whitelistedTrader);
-        vm.expectRevert("IRLTicketNFT: Weekly ticket holding cap exceeded");
-        cappedNft.transferFrom(whitelistedTrader, sniper, extraTicketId);
-        vm.stopPrank();
+        // Storage flag permanently flipped to false and 4.00% Standard Tax applied:
+        // - 0.30% Programmable (0.003 ETH)
+        // - 1.25% Hourly (0.0125 ETH)
+        // - 1.25% Lottery (0.625% Daily = 0.00625 ETH + 0.625% Weekly = 0.00625 ETH)
+        // - 1.20% Protocol & Burn (1.08% Protocol = 0.0108 ETH + 0.12% Buyback = 0.0012 ETH)
+        assertFalse(hook.launchTaxEnabled(), "launchTaxEnabled storage flag must permanently flip to false after 24h");
+        assertEq(progRecipient.balance - progBefore, 0.003 ether, "0.30% Programmable fee after 24h");
+        assertEq(hook.dailyLotteryPot() - dailyBefore, 0.00625 ether, "0.625% Daily Lottery after 24h");
+        assertEq(hook.protocolPot() - protocolBefore, 0.0108 ether, "1.08% Protocol Pot after 24h");
+        assertEq(hook.buybackPot() - burnBefore, 0.0012 ether, "0.12% Buyback Burn Pot after 24h");
     }
 
     function test_LaunchTax_10PercentUpTo100kMarketCap_Then4Percent() public {
@@ -564,44 +267,45 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         vm.stopPrank();
 
         assertTrue(hook.launchTaxEnabled(), "10% Launch Boost Tax must be active initially");
+        assertTrue(hook.isLaunchTaxActive(), "isLaunchTaxActive must be true initially");
         assertGt(hook.disableLaunchTaxSqrtPrice(), 0, "100k MC threshold must be configured");
 
-        // Fast-forward past the initial launch snipe window
         vm.warp(hook.launchTimestamp() + 120);
 
         uint256 hourId = block.timestamp / 1 hours;
         bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+        uint256 progBefore = progRecipient.balance;
 
-        vm.startPrank(sniper);
-        deal(Currency.unwrap(currency0), sniper, 20 ether);
-        deal(Currency.unwrap(currency1), sniper, 20 ether);
+        vm.startPrank(traderB);
+        deal(Currency.unwrap(currency0), traderB, 20 ether);
+        deal(Currency.unwrap(currency1), traderB, 20 ether);
 
         swapRouter.swapExactTokensForTokens({
             amountIn: 1.0 ether,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
+            hookData: abi.encode(traderB),
+            receiver: traderB,
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
-        // Verify 10.0% Launch Boost Tax split on 1.0 WETH swap:
-        // - 3.5% Hourly Pot (0.035 ETH = 0.01225 Top 10 + 0.01225 Cashback + 0.0105 Stakers)
-        // - 3.5% Lottery Pots (1.75% Daily = 0.0175 ETH + 1.75% Sunday = 0.0175 ETH)
-        // - 2.0% Protocol & Buyback Pot (1.8% Protocol = 0.018 ETH + 0.2% Buyback Burn = 0.002 ETH)
-        // - 1.0% Programmable.market (0.01 ETH)
-        assertEq(progRecipient.balance, 0.01 ether, "1.0% Programmable during Launch Boost");
+        // Verify 10.00% Launch Boost Tax split on 1.0 WETH swap:
+        // - 0.30% Programmable.market (0.003 ETH)
+        // - 3.75% Hourly Pot (0.0375 ETH)
+        // - 3.75% Lottery Pots (1.875% Daily = 0.01875 ETH + 1.875% Weekly = 0.01875 ETH)
+        // - 2.20% Protocol & Buyback Pot (1.98% Protocol = 0.0198 ETH + 0.22% Buyback Burn = 0.0022 ETH)
+        assertEq(progRecipient.balance - progBefore, 0.003 ether, "0.30% Programmable during Launch Boost");
         assertEq(
-            hook.hourlyPotByHour(hourId) + hook.userCashbackPerHour(hourId, sniper) + address(staking).balance,
-            0.035 ether,
-            "3.5% Hourly Pot during Launch Boost"
+            hook.hourlyPotByHour(hourId) + hook.userCashbackPerHour(hourId, traderB) + address(staking).balance,
+            0.0375 ether,
+            "3.75% Hourly Pot during Launch Boost"
         );
-        assertEq(hook.dailyLotteryPot(), 0.0175 ether, "1.75% Daily Lottery during Launch Boost");
-        assertEq(hook.sundayMegaPot(), 0.0175 ether, "1.75% Sunday Lottery during Launch Boost");
-        assertEq(hook.protocolPot(), 0.018 ether, "1.8% Protocol Pot during Launch Boost");
-        assertEq(hook.buybackPot(), 0.002 ether, "0.2% Buyback Burn Pot during Launch Boost");
+        assertEq(hook.dailyLotteryPot(), 0.01875 ether, "1.875% Daily Lottery during Launch Boost");
+        assertEq(hook.sundayMegaPot(), 0.01875 ether, "1.875% Sunday Lottery during Launch Boost");
+        assertEq(hook.protocolPot(), 0.0198 ether, "1.98% Protocol Pot during Launch Boost");
+        assertEq(hook.buybackPot(), 0.0022 ether, "0.22% Buyback Burn Pot during Launch Boost");
 
         // Simulate reaching 100k Market Cap cutoff
         (uint160 currentSqrtPrice,,,) = poolManager.getSlot0(poolId);
@@ -610,42 +314,269 @@ contract AntiSnipeTaxValidationTest is BaseTest {
         vm.stopPrank();
 
         // Execute a small swap that crosses/triggers the 100k MC cutoff
-        vm.startPrank(whitelistedTrader);
-        deal(Currency.unwrap(currency0), whitelistedTrader, 10 ether);
-        deal(Currency.unwrap(currency1), whitelistedTrader, 10 ether);
+        vm.startPrank(traderA);
+        deal(Currency.unwrap(currency0), traderA, 10 ether);
+        deal(Currency.unwrap(currency1), traderA, 10 ether);
         swapRouter.swapExactTokensForTokens({
             amountIn: 0.05 ether,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
-            hookData: abi.encode(whitelistedTrader),
-            receiver: whitelistedTrader,
-            deadline: block.timestamp + 1
+            hookData: abi.encode(traderA),
+            receiver: traderA,
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
         // Launch Boost Tax is now permanently disabled on-chain
         assertFalse(hook.launchTaxEnabled(), "10% Launch Tax must auto-disable at 100k MC");
+        assertFalse(hook.isLaunchTaxActive(), "isLaunchTaxActive must be false after 100k MC");
 
-        // Subsequent 1.0 WETH swap must pay the standard 4.0% tax (1% / 1% / 1% / 1%)
+        // Subsequent 1.0 WETH swap must pay the standard 4.00% tax (1.25% / 1.25% / 1.20% / 0.30%)
         uint256 dailyBefore = hook.dailyLotteryPot();
         uint256 protocolBefore = hook.protocolPot();
         uint256 burnPotBefore = hook.buybackPot();
+        uint256 progBefore2 = progRecipient.balance;
 
-        vm.startPrank(sniper);
+        vm.startPrank(traderB);
         swapRouter.swapExactTokensForTokens({
             amountIn: 1.0 ether,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
-            hookData: abi.encode(sniper),
-            receiver: sniper,
-            deadline: block.timestamp + 1
+            hookData: abi.encode(traderB),
+            receiver: traderB,
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
-        assertEq(hook.dailyLotteryPot() - dailyBefore, 0.005 ether, "0.5% Daily Lottery after 100k MC");
-        assertEq(hook.protocolPot() - protocolBefore, 0.009 ether, "0.9% Protocol Pot after 100k MC");
-        assertEq(hook.buybackPot() - burnPotBefore, 0.001 ether, "0.1% Buyback Burn Pot after 100k MC");
+        assertEq(progRecipient.balance - progBefore2, 0.003 ether, "0.30% Programmable after 100k MC");
+        assertEq(hook.dailyLotteryPot() - dailyBefore, 0.00625 ether, "0.625% Daily Lottery after 100k MC");
+        assertEq(hook.protocolPot() - protocolBefore, 0.0108 ether, "1.08% Protocol Pot after 100k MC");
+        assertEq(hook.buybackPot() - burnPotBefore, 0.0012 ether, "0.12% Buyback Burn Pot after 100k MC");
+    }
+
+    function test_LiquidityCustody_90PercentPermanentLock_10PercentMarketing_AndInitialBuy() public {
+        // Deploy a fresh token + pool at 20k MC price to test atomic LP seeding + 0.15 ETH initial buy
+        vm.startPrank(deployer, deployer);
+        InternetRobinLottery irlFresh = new InternetRobinLottery(deployer, 1_000_000_000 ether);
+        IRLMarketingVault vaultFresh = new IRLMarketingVault(address(poolManager), address(positionManager), address(irlFresh));
+
+        Currency c0;
+        Currency c1;
+        uint160 startPrice;
+        if (address(irlFresh) < address(weth)) {
+            c0 = Currency.wrap(address(irlFresh));
+            c1 = Currency.wrap(address(weth));
+            startPrice = 7158327914619714881093632;
+        } else {
+            c0 = Currency.wrap(address(weth));
+            c1 = Currency.wrap(address(irlFresh));
+            startPrice = 876895058097984813589920800000000;
+        }
+
+        PoolKey memory freshKey = PoolKey(c0, c1, 3000, 60, IHooks(hook));
+        poolManager.initialize(freshKey, startPrice);
+
+        // Fund vault with 100% of token supply (1,000,000,000 IRL)
+        irlFresh.transfer(address(vaultFresh), 1_000_000_000 ether);
+
+        // Seed 90% permanent locked LP + 10% conditional marketing LP
+        vaultFresh.seedInitialLiquidity(freshKey);
+
+        assertTrue(vaultFresh.liquiditySeeded(), "Initial liquidity must be marked seeded");
+        assertGt(vaultFresh.permanentLiquidity(), 0, "90% permanent locked liquidity must be non-zero");
+        assertGt(vaultFresh.marketingLiquidity(), 0, "10% conditional marketing liquidity must be non-zero");
+        assertApproxEqAbs(irlFresh.balanceOf(address(poolManager)), 1_000_000_000 ether, 1e15, "PoolManager holds ~100% of initial IRL liquidity");
+
+        // Attempt to withdraw marketing liquidity before price crosses bracket must revert
+        uint128 mLiq = vaultFresh.marketingLiquidity();
+        vm.expectRevert(
+            address(irlFresh) < address(weth)
+                ? bytes("Market bracket not reached: IRL not yet converted to WETH (tick < tickUpper)")
+                : bytes("Market bracket not reached: IRL not yet converted to WETH (tick > tickLower)")
+        );
+        vaultFresh.decreaseMarketingLiquidity(mLiq, deployer);
+
+        // Execute atomic initial buy of 0.15 ETH in the same block
+        uint256 deployerIrlBefore = irlFresh.balanceOf(deployer);
+        uint256 progBefore = progRecipient.balance;
+
+        uint256 irlBought = vaultFresh.executeInitialBuy{value: 0.15 ether}(freshKey, address(weth), 1, deployer);
+        vm.stopPrank();
+
+        assertGt(irlBought, 10_000_000 ether, "0.15 ETH initial buy should receive ~16.25M IRL");
+        assertEq(irlFresh.balanceOf(deployer) - deployerIrlBefore, irlBought, "Deployer received initial buy IRL");
+        assertEq(progRecipient.balance - progBefore, 0.00045 ether, "Programmable received 0.30% of 0.15 ETH initial buy");
+    }
+
+    function test_UnclaimedRewards_ClaimableByRecipient_NotMovedToProtocol() public {
+        ToggleableEthRecipient revertingUser = new ToggleableEthRecipient();
+        vm.deal(address(revertingUser), 10 ether);
+
+        vm.startPrank(deployer);
+        hook.launch();
+        vm.stopPrank();
+
+        vm.warp(hook.launchTimestamp() + 100);
+        uint256 hourId = block.timestamp / 1 hours;
+
+        // revertingUser performs a swap in hourId
+        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+        vm.startPrank(address(revertingUser));
+        deal(Currency.unwrap(currency0), address(revertingUser), 10 ether);
+        deal(Currency.unwrap(currency1), address(revertingUser), 10 ether);
+        weth.approve(address(permit2), type(uint256).max);
+        weth.approve(address(swapRouter), type(uint256).max);
+        permit2.approve(address(weth), address(swapRouter), type(uint160).max, type(uint48).max);
+
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 1.0 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(address(revertingUser)),
+            receiver: address(revertingUser),
+            deadline: type(uint256).max
+        });
+        vm.stopPrank();
+
+        uint256 expectedUserReward = hook.hourlyPotByHour(hourId) + hook.userCashbackPerHour(hourId, address(revertingUser));
+        assertGt(expectedUserReward, 0, "User must have accrued hourly leaderboard + cashback rewards");
+
+        // Advance to next hour and trigger hourly distribution while revertingUser rejects ETH
+        vm.warp((hourId + 1) * 1 hours + 10);
+        uint256 protocolBefore = hook.protocolPot();
+
+        hook.performUpkeep(abi.encode(uint8(1), 0));
+        hook.performUpkeep(abi.encode(uint8(2), 0));
+
+        // 1. Protocol pot did NOT absorb the failed user payout
+        assertEq(hook.protocolPot(), protocolBefore, "Failed user payout must NEVER be moved into protocolPot");
+
+        // 2. Unclaimed reward is credited to revertingUser
+        assertEq(hook.unclaimedRewards(address(revertingUser)), expectedUserReward, "Failed payout must be stored in unclaimedRewards");
+
+        // 3. Once revertingUser enables ETH reception, it can claim its exact reward
+        revertingUser.setAcceptEth(true);
+        uint256 balBefore = address(revertingUser).balance;
+        revertingUser.claimFromHook(hook);
+
+        assertEq(address(revertingUser).balance - balBefore, expectedUserReward, "Rightful recipient claimed full unpaid reward");
+        assertEq(hook.unclaimedRewards(address(revertingUser)), 0, "unclaimedRewards cleared after claim");
+    }
+
+    function test_DelayedDraws_EpochIsolatedLotteryPots() public {
+        vm.startPrank(deployer);
+        hook.launch();
+        vm.stopPrank();
+
+        // Day D0: traderA swaps 1.0 WETH (generates tickets in Day D0 and funds dailyPotByDay[D0])
+        uint256 day0 = block.timestamp / 1 days;
+        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+
+        vm.startPrank(traderA);
+        deal(Currency.unwrap(currency0), traderA, 20 ether);
+        deal(Currency.unwrap(currency1), traderA, 20 ether);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 1.0 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(traderA),
+            receiver: traderA,
+            deadline: type(uint256).max
+        });
+        vm.stopPrank();
+
+        uint256 potDay0 = hook.dailyPotByDay(day0);
+        assertEq(potDay0, 0.01875 ether, "Day 0 pot must equal 1.875% of Day 0 swap");
+
+        // Warp to Day D1 (delayed keeper execution): traderB swaps 2.0 WETH in Day D1 BEFORE Day D0 draw happens
+        // Note: 24h Launch Boost window has now expired, so Day D1 swap pays the 4.00% Standard Tax (0.625% Daily = 0.0125 ETH)
+        vm.warp((day0 + 1) * 1 days + 100);
+        uint256 day1 = day0 + 1;
+
+        vm.startPrank(traderB);
+        deal(Currency.unwrap(currency0), traderB, 20 ether);
+        deal(Currency.unwrap(currency1), traderB, 20 ether);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 2.0 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(traderB),
+            receiver: traderB,
+            deadline: type(uint256).max
+        });
+        vm.stopPrank();
+
+        uint256 potDay1 = hook.dailyPotByDay(day1);
+        assertEq(potDay1, 0.0125 ether, "Day 1 pot must be isolated in dailyPotByDay[day1]");
+        assertEq(hook.dailyPotByDay(day0), potDay0, "Day 0 pot must remain strictly potDay0 without mixing Day 1 funds");
+
+        // Keeper executes delayed Daily Lottery for Day 0
+        uint256 traderABalBefore = traderA.balance;
+        hook.performUpkeep(abi.encode(uint8(3), day1));
+        // Fulfill OpenVRF request #1
+        vm.prank(address(openVrf));
+        hook.rawFulfillRandomness(1, 777);
+
+        // TraderA (only ticket holder in Day 0) wins strictly potDay0, while potDay1 remains untouched!
+        assertEq(traderA.balance - traderABalBefore, potDay0, "Day 0 winner receives strictly Day 0 pot");
+        assertEq(hook.dailyPotByDay(day0), 0, "Day 0 pot is now 0");
+        assertEq(hook.dailyPotByDay(day1), potDay1, "Day 1 pot is completely preserved for Day 1 draw");
+    }
+
+    function test_AntiWhale_AutoDisableAt50kMarketCap() public {
+        bool isIrl0 = (address(irl) < address(weth));
+        vm.startPrank(deployer);
+        hook.setDisableAntiWhaleFromInitialPrice(Constants.SQRT_PRICE_1_1, isIrl0);
+        vm.stopPrank();
+
+        assertTrue(hook.limitsEnabled(), "Limits must be active before reaching 50k MC");
+        uint160 target50k = hook.disableAntiWhaleSqrtPrice();
+        assertGt(target50k, 0, "50k MC threshold must be configured");
+
+        vm.startPrank(deployer);
+        hook.setDisableAntiWhalePrice(Constants.SQRT_PRICE_1_1);
+        vm.stopPrank();
+
+        vm.warp(hook.launchTimestamp() + 120);
+        vm.startPrank(traderA);
+        deal(Currency.unwrap(currency0), traderA, 10 ether);
+        deal(Currency.unwrap(currency1), traderA, 10 ether);
+
+        bool zeroForOne = Currency.unwrap(poolKey.currency0) == address(weth);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 0.1 ether,
+            amountOutMin: 0,
+            zeroForOne: zeroForOne,
+            poolKey: poolKey,
+            hookData: abi.encode(traderA),
+            receiver: traderA,
+            deadline: type(uint256).max
+        });
+        vm.stopPrank();
+
+        assertFalse(hook.limitsEnabled(), "Limits must be automatically disabled once 50k MC price is reached");
+    }
+
+    function test_NFTTicket_OnChainHoldingCapEnforced() public {
+        IRLTicketNFT cappedNft = new IRLTicketNFT(deployer);
+        vm.startPrank(deployer);
+        for (uint256 i = 0; i < 42; i++) {
+            cappedNft.mintTicket(traderB);
+        }
+        uint256 extraTicketId = cappedNft.mintTicket(traderA);
+        cappedNft.transferOwnership(address(hook));
+        vm.stopPrank();
+
+        assertEq(cappedNft.balanceOf(traderB), 42);
+
+        vm.startPrank(traderA);
+        vm.expectRevert("IRLTicketNFT: Weekly ticket holding cap exceeded");
+        cappedNft.transferFrom(traderA, traderB, extraTicketId);
+        vm.stopPrank();
     }
 }

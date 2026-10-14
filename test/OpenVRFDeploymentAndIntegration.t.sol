@@ -83,7 +83,7 @@ contract OpenVRFDeploymentAndIntegrationTest is BaseTest {
     address alice = address(0x111);
     address bob = address(0x222);
     address charlie = address(0x333);
-    address progRecipient = address(0x444);
+    address progRecipient = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da;
 
     uint160 constant SQRT_PRICE_IRL_TOKEN0 = 7158327914619714881093632; 
     uint160 constant SQRT_PRICE_IRL_TOKEN1 = 876895058097984813589920800000000;
@@ -141,7 +141,6 @@ contract OpenVRFDeploymentAndIntegrationTest is BaseTest {
 
         // Configure Hook
         hook.removeLimits(); // Disable Anti-Whale limits for testing
-        hook.setProgrammableFeeRecipient(progRecipient);
 
         // 5. Initialize Uniswap V4 Pool & seed deep liquidity
         uint160 startingPrice = address(irl) < address(weth) ? SQRT_PRICE_IRL_TOKEN0 : SQRT_PRICE_IRL_TOKEN1;
@@ -375,7 +374,7 @@ contract OpenVRFDeploymentAndIntegrationTest is BaseTest {
         uint256 actionType = abi.decode(performData, (uint256));
         
         // If daily is also pending, perform daily first
-        if (actionType == 3) {
+        while (actionType == 3) {
             hook.performUpkeep(performData);
             // Now check next upkeep
             (upkeepNeeded, performData) = hook.checkUpkeep("");

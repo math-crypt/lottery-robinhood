@@ -99,13 +99,13 @@ contract StressAndEcosystemValidationTest is BaseTest {
     address bob = address(0xB0B);     // Half staker (10M IRL = 1%)
     address charlie = address(0xCC1); // Non-staker (0 IRL)
     address dev = address(0xDE7);
-    address progRecipient = address(0x999);
+    address progRecipient = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da;
 
     uint160 constant SQRT_PRICE_IRL_TOKEN0 = 7158327914619714881093632; 
     uint160 constant SQRT_PRICE_IRL_TOKEN1 = 876895058097984813589920800000000;
 
     function setUp() public {
-        vm.warp(42 days);
+        vm.warp(46 days); // Start on Monday 00:00 UTC ((46 + 3) / 7 == 7)
         deployArtifactsAndLabel();
 
         openVrfMock = new MockOpenVRFStress();
@@ -136,7 +136,6 @@ contract StressAndEcosystemValidationTest is BaseTest {
 
         nft.transferOwnership(address(hook));
         hook.removeLimits(); // Disable Anti-Whale for stress testing
-        hook.setProgrammableFeeRecipient(progRecipient);
 
         poolKey = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
         poolId = poolKey.toId();
@@ -326,26 +325,28 @@ contract StressAndEcosystemValidationTest is BaseTest {
 
         // 4% total tax on 2.0 ETH = 0.08 ETH (80,000,000,000,000,000 wei)
         uint256 totalTax = (swapAmount * 4) / 100;
-        uint256 split = totalTax / 4; // 1% = 0.02 ETH
+        uint256 progFee = (totalTax * 30) / 400;      // 0.30% = 0.006 ETH
+        uint256 hourlyTotal = (totalTax * 125) / 400; // 1.25% = 0.025 ETH
+        uint256 lotteryTotal = hourlyTotal;           // 1.25% = 0.025 ETH
 
-        // 1. Programmable.market: 1% directly forwarded
-        assertEq(progRecipient.balance - progBalanceBefore, split, "Programmable fee must equal 1% of swap");
+        // 1. Programmable.market: 0.30% directly forwarded
+        assertEq(progRecipient.balance - progBalanceBefore, progFee, "Programmable fee must equal 0.30% of swap");
 
-        // 2. Hourly: 1% split (35% Top 10, 35% cashback, 30% staking)
-        uint256 expectedStaking = (split * 30) / 100;
-        uint256 expectedCashback = (split * 35) / 100;
-        uint256 expectedTop10 = split - expectedStaking - expectedCashback;
+        // 2. Hourly: 1.25% split (35% Top 10, 35% cashback, 30% staking)
+        uint256 expectedStaking = (hourlyTotal * 30) / 100;
+        uint256 expectedCashback = (hourlyTotal * 35) / 100;
+        uint256 expectedTop10 = hourlyTotal - expectedStaking - expectedCashback;
         assertEq(hook.hourlyRewardPot() - hourlyPotBefore, expectedTop10, "Hourly pot must receive 35% Top 10 share");
         assertEq(hook.userCashbackPerHour(block.timestamp / 1 hours, charlie), expectedCashback, "User cashback must receive 35% share");
 
-        // 3. Lotteries: 1% split (50% daily, 50% sunday)
-        uint256 expectedSunday = split / 2;
-        uint256 expectedDaily = split - expectedSunday;
+        // 3. Lotteries: 1.25% split (50% daily, 50% sunday)
+        uint256 expectedSunday = lotteryTotal / 2;
+        uint256 expectedDaily = lotteryTotal - expectedSunday;
         assertEq(hook.dailyLotteryPot() - dailyPotBefore, expectedDaily, "Daily pot must receive 50% of lottery split");
         assertEq(hook.sundayMegaPot() - sundayPotBefore, expectedSunday, "Sunday pot must receive 50% of lottery split");
 
-        // 4. Protocol: 1% split (90% protocol/gas, 10% buyback)
-        uint256 protocolTotal = totalTax - (3 * split);
+        // 4. Protocol: 1.20% split (90% protocol/gas, 10% buyback)
+        uint256 protocolTotal = totalTax - progFee - hourlyTotal - lotteryTotal;
         uint256 expectedBuyback = (protocolTotal * 10) / 100;
         uint256 expectedProtocol = protocolTotal - expectedBuyback;
         assertEq(hook.buybackPot() - buybackPotBefore, expectedBuyback, "Buyback pot must receive 10% of protocol share");
@@ -480,11 +481,8 @@ contract StressAndEcosystemValidationTest is BaseTest {
             }
         }
 
-        // Advance to cross Sunday week boundary
-        currentTime += 1 days;
-        vm.warp(currentTime);
-
-        uint256 sundayPot = hook.sundayMegaPot();
+        // After 7 days (Monday through Sunday), currentTime is now Monday 00:00 UTC of the new week
+        uint256 sundayPot = hook.weeklyPotByWeek(hook.lastLotteryWeek());
         assertTrue(sundayPot > 0, "Sunday Mega Pot should have accumulated mass volume");
 
         // Trigger and fulfill Sunday Mega-Jackpot draw

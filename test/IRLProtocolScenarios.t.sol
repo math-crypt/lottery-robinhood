@@ -103,14 +103,14 @@ contract IRLProtocolScenariosTest is BaseTest {
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
     address charlie = address(0xCC1);
-    address progRecipient = address(0x999);
+    address progRecipient = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da;
 
     uint160 constant SQRT_PRICE_IRL_TOKEN0 = 7158327914619714881093632; 
     uint160 constant SQRT_PRICE_IRL_TOKEN1 = 876895058097984813589920800000000;
 
     function setUp() public {
-        // Warp to exactly 42 days (1008 hours) - clean day and week boundary
-        vm.warp(42 days);
+        // Warp to 46 days (Monday 00:00 UTC, (46 + 3) / 7 == 7) - clean day and week boundary
+        vm.warp(46 days);
         deployArtifactsAndLabel();
 
         openVrfMock = new MockOpenVRFScenarios();
@@ -141,7 +141,6 @@ contract IRLProtocolScenariosTest is BaseTest {
 
         nft.transferOwnership(address(hook));
         hook.removeLimits(); // Disable AntiWhale limit for test volume
-        hook.setProgrammableFeeRecipient(progRecipient);
 
         poolKey = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
         poolId = poolKey.toId();
@@ -351,7 +350,7 @@ contract IRLProtocolScenariosTest is BaseTest {
         // Warp 2 days to cross week boundary
         currentTime += 2 days;
         vm.warp(currentTime);
-        uint256 sundayMegaPot = hook.sundayMegaPot();
+        uint256 sundayMegaPot = hook.weeklyPotByWeek(hook.lastLotteryWeek());
         assertTrue(sundayMegaPot > 0, "Sunday Mega pot must be funded");
 
         // Process all upkeeps until Sunday Mega draw is triggered
@@ -427,21 +426,18 @@ contract IRLProtocolScenariosTest is BaseTest {
      * @notice Scenario 4: Security Hardening & Edge Cases
      */
     function testSecurityHardening_RevertingWinnerAndFallbackPots() public {
-        // 1. Test Input Validation on setProgrammableFeeRecipient
-        vm.expectRevert(bytes("InvalidRecipientZeroAddress"));
-        hook.setProgrammableFeeRecipient(address(0));
-
-        vm.expectRevert(bytes("InvalidRecipientSelf"));
-        hook.setProgrammableFeeRecipient(address(hook));
+        // 1. Verify Immutable Programmable Fee Recipient & BPS
+        assertEq(hook.PROGRAMMABLE_FEE_RECIPIENT(), progRecipient);
+        assertEq(hook.PROGRAMMABLE_FEE_BPS(), 30);
 
         // 2. Test Programmable Fee Reverting Recipient Fallback
         RevertingETHReceiver badRecipient = new RevertingETHReceiver();
-        hook.setProgrammableFeeRecipient(address(badRecipient));
+        vm.etch(progRecipient, address(badRecipient).code);
 
         // Swap must NOT revert; fee should safely buffer in programmableFeePot
         _performSwap(bob, 1.0 ether);
-        // 1 ETH swap * 4% tax = 0.04 ETH. 1% Programmable = 0.01 ETH
-        assertEq(hook.programmableFeePot(), 0.01 ether, "Fee should buffer when recipient reverts");
+        // 1 ETH swap * 4% tax = 0.04 ETH. 0.30% Programmable = 0.003 ETH
+        assertEq(hook.programmableFeePot(), 0.003 ether, "Fee should buffer when recipient reverts");
 
         // Unauthorized caller cannot claim
         vm.startPrank(bob);
@@ -449,14 +445,14 @@ contract IRLProtocolScenariosTest is BaseTest {
         hook.claimProgrammableFees();
         vm.stopPrank();
 
-        // Fix recipient and claim
-        hook.setProgrammableFeeRecipient(progRecipient);
+        // Restore recipient and claim
+        vm.etch(progRecipient, "");
         uint256 progEthBefore = progRecipient.balance;
         hook.claimProgrammableFees();
-        assertEq(progRecipient.balance - progEthBefore, 0.01 ether, "Buffered fee claimed");
+        assertEq(progRecipient.balance - progEthBefore, 0.003 ether, "Buffered fee claimed");
         assertEq(hook.programmableFeePot(), 0);
 
-        // 3. Test Reverting Winner Fallback (Prize redirected to protocolPot, zero stuck ETH)
+        // 3. Test Reverting Winner Fallback (Prize credited to unclaimedRewards[winner], never protocolPot)
         // Advance to a fresh day and clear any prior day's upkeep
         uint256 currentTime = block.timestamp + 1 days;
         vm.warp(currentTime);
@@ -475,10 +471,12 @@ contract IRLProtocolScenariosTest is BaseTest {
         _performSwap(address(badRecipient), 0.20 ether);
 
         // Advance 1 day to trigger the daily lottery draw for badRecipient's day
+        uint256 targetDay = block.timestamp / 1 days;
+        uint256 dailyPot = hook.dailyPotByDay(targetDay);
+        assertTrue(dailyPot > 0, "Daily pot should exist");
+
         currentTime += 1 days;
         vm.warp(currentTime);
-        uint256 dailyPot = hook.dailyLotteryPot();
-        assertTrue(dailyPot > 0, "Daily pot should exist");
 
         while (true) {
             (bool needed, bytes memory data) = hook.checkUpkeep("");
@@ -492,8 +490,9 @@ contract IRLProtocolScenariosTest is BaseTest {
         // Fulfill VRF: ticket belongs to badRecipient whose receive() reverts
         openVrfMock.fulfillMock(openVrfMock.nextId() - 1, 0);
 
-        // Verify the badRecipient did not break the protocol and prize went to protocolPot
-        assertEq(hook.protocolPot() - protocolPotBefore, dailyPot, "Prize should redirect to protocolPot");
-        assertEq(hook.dailyLotteryPot(), 0, "Daily pot must be cleared");
+        // Verify the badRecipient did not break the protocol, protocolPot did NOT increase, and prize is claimable by badRecipient
+        assertEq(hook.protocolPot(), protocolPotBefore, "Prize must NOT go to protocolPot");
+        assertEq(hook.unclaimedRewards(address(badRecipient)), dailyPot, "Prize must be claimable in unclaimedRewards");
+        assertEq(hook.dailyPotByDay(targetDay), 0, "Target day pot must be cleared");
     }
 }

@@ -25,18 +25,20 @@ import {InternetRobinLottery} from "../src/InternetRobinLottery.sol";
 
 // Mock VRF
 import {VRFCoordinatorV2Mock} from "@chainlink/contracts/v0.8/vrf/mocks/VRFCoordinatorV2Mock.sol";
+import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 
-contract MockWETH {
-    mapping(address => uint256) public balanceOf;
+contract MockWETH is MockERC20 {
+    constructor() MockERC20("Mock WETH", "WETH", 18) {}
     function deposit() external payable {
-        balanceOf[msg.sender] += msg.value;
+        _mint(msg.sender, msg.value);
     }
     function withdraw(uint256 wad) external {
         require(balanceOf[msg.sender] >= wad, "Insufficient WETH");
-        balanceOf[msg.sender] -= wad;
+        _burn(msg.sender, wad);
         (bool success, ) = msg.sender.call{value: wad}("");
         require(success, "ETH transfer failed");
     }
+    receive() external payable {}
 }
 
 contract MockStaking {
@@ -47,6 +49,9 @@ contract MockStaking {
     function getStakedAmount(address user) external view returns (uint256) {
         return staked[user];
     }
+    function distributeYield() external payable {}
+    function onStakingTicketsClaimed(address) external {}
+    function registerHook(address) external {}
 }
 
 contract IRLUniswapV4HookTest is BaseTest {
@@ -95,9 +100,11 @@ contract IRLUniswapV4HookTest is BaseTest {
         address flags = address(hookFlags ^ (0x4444 << 144));
         
         MockWETH mockWeth = new MockWETH();
+        vm.etch(Currency.unwrap(currency1), address(mockWeth).code);
+        vm.deal(Currency.unwrap(currency1), 100 ether);
         mockStaking = new MockStaking();
         
-        bytes memory constructorArgs = abi.encode(poolManager, address(nft), address(mockStaking), address(vrfMock), subId, bytes32(0), address(mockWeth));
+        bytes memory constructorArgs = abi.encode(poolManager, address(nft), address(mockStaking), address(vrfMock), Currency.unwrap(currency1));
         deployCodeTo("IRLUniswapV4Hook.sol:IRLUniswapV4Hook", constructorArgs, flags);
         hook = IRLUniswapV4Hook(payable(flags));
 
@@ -167,7 +174,7 @@ contract IRLUniswapV4HookTest is BaseTest {
             poolKey: poolKey,
             hookData: abi.encode(address(this)),
             receiver: address(this),
-            deadline: block.timestamp + 1
+            deadline: type(uint256).max
         });
 
         // 1. Verify swap happened
@@ -247,7 +254,7 @@ contract IRLUniswapV4HookTest is BaseTest {
             poolKey: poolKey,
             hookData: abi.encode(staker),
             receiver: staker,
-            deadline: block.timestamp + 1
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
@@ -288,7 +295,7 @@ contract IRLUniswapV4HookTest is BaseTest {
             poolKey: poolKey,
             hookData: abi.encode(nonStaker),
             receiver: nonStaker,
-            deadline: block.timestamp + 1
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 
@@ -312,7 +319,7 @@ contract IRLUniswapV4HookTest is BaseTest {
             poolKey: poolKey,
             hookData: abi.encode(staker),
             receiver: staker,
-            deadline: block.timestamp + 1
+            deadline: type(uint256).max
         });
         vm.stopPrank();
 

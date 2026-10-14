@@ -113,31 +113,9 @@ contract DeployLotteryEcosystem is Script {
         
         // Transfer NFT ownership to hook so it can mint and enforce weekly holding caps
         nft.transferOwnership(address(hook));
+        // Note: IRLUniswapV4Hook constructor automatically registers itself in IRLStaking
 
-        // Register Hook in IRLStaking
-        staking.registerHook(address(hook));
-
-        // Configure Programmable.market Fee Recipient (1% protocol routing)
-        address progRecipient = vm.envOr(
-            "PROGRAMMABLE_FEE_RECIPIENT",
-            address(0xD88539d3c4C460136a733A3Fd60cf6BF269079da)
-        );
-        if (progRecipient != address(0)) {
-            hook.setProgrammableFeeRecipient(progRecipient);
-            console2.log("Configured Programmable Fee Recipient:", progRecipient);
-        }
-
-        // Optional: Whitelist up to 5 personal wallets for the 60s Anti-Snipe Window (0% sniper tax, 4%/10% regular tax)
-        address wl1 = vm.envOr("WHITELIST_WALLET_1", address(0));
-        address wl2 = vm.envOr("WHITELIST_WALLET_2", address(0));
-        address wl3 = vm.envOr("WHITELIST_WALLET_3", address(0));
-        address wl4 = vm.envOr("WHITELIST_WALLET_4", address(0));
-        address wl5 = vm.envOr("WHITELIST_WALLET_5", address(0));
-        if (wl1 != address(0)) hook.setAntiSnipeWhitelist(wl1, true);
-        if (wl2 != address(0)) hook.setAntiSnipeWhitelist(wl2, true);
-        if (wl3 != address(0)) hook.setAntiSnipeWhitelist(wl3, true);
-        if (wl4 != address(0)) hook.setAntiSnipeWhitelist(wl4, true);
-        if (wl5 != address(0)) hook.setAntiSnipeWhitelist(wl5, true);
+        console2.log("Immutable Programmable Fee Recipient (0.30%):", hook.PROGRAMMABLE_FEE_RECIPIENT());
 
         // Authorize Hook as OpenVRF consumer
         try openVrfContract.setConsumerAuthorization(hookAddress, true) {
@@ -172,11 +150,25 @@ contract DeployLotteryEcosystem is Script {
         console2.log("Initializing Pool Manager with Market Cap ~20k$...");
         IPoolManager(poolManager).initialize(poolKey, startingPrice);
 
-        // 4. Configure 50k Market Cap Anti-Whale & 100k Market Cap Launch Boost Tax (10% -> 4%) Cutoffs
+        // 4. Configure 50k Market Cap Anti-Whale & 100k Market Cap Launch Boost Tax (10% -> 4%, or 24h expiry) Cutoffs
         bool isIrl0 = (address(irl) < weth);
         hook.setDisableAntiWhaleFromInitialPrice(startingPrice, isIrl0);
         console2.log("Configured 50k Market Cap Anti-Whale cutoff:", hook.disableAntiWhaleSqrtPrice());
         console2.log("Configured 100k Market Cap 10% Launch Tax cutoff:", hook.disableLaunchTaxSqrtPrice());
+
+        // 5. Fund Liquidity Vault (90% Permanent Locked + 10% Conditional Marketing) & Seed Initial Liquidity
+        bool seedLiquidity = vm.envOr("SEED_INITIAL_LIQUIDITY", true);
+        if (seedLiquidity) {
+            console2.log("Funding IRLMarketingVault with 1,000,000,000 IRL and seeding 90%/10% liquidity...");
+            irl.transfer(address(vault), 1_000_000_000 ether);
+            vault.seedInitialLiquidity(poolKey);
+
+            uint256 initialBuyEth = vm.envOr("INITIAL_BUY_ETH", uint256(0.15 ether));
+            if (initialBuyEth > 0 && deployer.balance >= initialBuyEth) {
+                console2.log("Executing atomic initial buy of ETH:", initialBuyEth);
+                vault.executeInitialBuy{value: initialBuyEth}(poolKey, weth, 1, deployer);
+            }
+        }
 
         vm.stopBroadcast();
         
