@@ -91,7 +91,7 @@ bot.command('about', (ctx) => {
 We steal from the whales to give back to the community! $IRL is an innovative DeFi ecosystem launching via **Programmable.market** on the Robinhood Chain, utilizing cutting-edge **Uniswap V4 Hooks** to create a fair, gamified, and hyper-rewarding environment.
 
 🚀 *10.0% Launch Boost Tax (< $100k MC) ➔ 4.0% Standard Tax (≥ $100k MC):*
-To supercharge the very first hourly, daily, and weekly prize pots at launch, swaps carry a **10.0% Launch Boost Tax** up to **$100,000 Market Cap** (`3.5%` Hourly Pot + `3.5%` Lottery Pots + `2.0%` Protocol/Buyback Pot + `1.0%` Programmable), and then **automatically drop to the 4.0% Standard Tax** (`1% / 1% / 1% / 1%`) at $100k MC!
+To supercharge the very first hourly, daily, and weekly prize pots at launch, swaps carry a **10.0% Launch Boost Tax** up to **$100,000 Market Cap** (\`3.5%\` Hourly Pot + \`3.5%\` Lottery Pots + \`2.0%\` Protocol/Buyback Pot + \`1.0%\` Programmable), and then **automatically drop to the 4.0% Standard Tax** (\`1% / 1% / 1% / 1%\`) at $100k MC!
 
 1️⃣ **1.0% Programmable.market Protocol Tax**
 - 50% Auto-Burned onchain directly on every swap (0.50% volume burned forever)!
@@ -125,8 +125,8 @@ bot.command('tokenomics', (ctx) => {
     const text = `📊 *$IRL Tokenomics & Taxes* 📊
 
 All taxes are collected natively in ETH directly from the Uniswap V4 Hook in two automatic phases:
-• 🚀 **Phase 1 — 10.0% Launch Boost Tax (Up to $100,000 Market Cap):** Supercharges the first hourly, daily, and weekly reward pots (`3.5%` Hourly + `3.5%` Lottery + `2.0%` Protocol + `1.0%` Programmable).
-• ⚡ **Phase 2 — 4.0% Standard Cruise Tax (Auto-switches at $100,000 Market Cap):** `1.0%` Hourly + `1.0%` Lottery + `1.0%` Protocol + `1.0%` Programmable.
+• 🚀 **Phase 1 — 10.0% Launch Boost Tax (Up to $100,000 Market Cap):** Supercharges the first hourly, daily, and weekly reward pots (\`3.5%\` Hourly + \`3.5%\` Lottery + \`2.0%\` Protocol + \`1.0%\` Programmable).
+• ⚡ **Phase 2 — 4.0% Standard Cruise Tax (Auto-switches at $100,000 Market Cap):** \`1.0%\` Hourly + \`1.0%\` Lottery + \`1.0%\` Protocol + \`1.0%\` Programmable.
 
 ⚡ *1.0% Programmable.market Fee (Launch & Standard)*:
   • Managed directly by Programmable.market.
