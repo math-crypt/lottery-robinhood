@@ -127,15 +127,17 @@ contract DeployLotteryEcosystem is Script {
             console2.log("Configured Programmable Fee Recipient:", progRecipient);
         }
 
-        // Optional: Whitelist up to 4 personal wallets for the 60s Anti-Snipe Window (0% sniper tax, 4%/10% regular tax)
+        // Optional: Whitelist up to 5 personal wallets for the 60s Anti-Snipe Window (0% sniper tax, 4%/10% regular tax)
         address wl1 = vm.envOr("WHITELIST_WALLET_1", address(0));
         address wl2 = vm.envOr("WHITELIST_WALLET_2", address(0));
         address wl3 = vm.envOr("WHITELIST_WALLET_3", address(0));
         address wl4 = vm.envOr("WHITELIST_WALLET_4", address(0));
+        address wl5 = vm.envOr("WHITELIST_WALLET_5", address(0));
         if (wl1 != address(0)) hook.setAntiSnipeWhitelist(wl1, true);
         if (wl2 != address(0)) hook.setAntiSnipeWhitelist(wl2, true);
         if (wl3 != address(0)) hook.setAntiSnipeWhitelist(wl3, true);
         if (wl4 != address(0)) hook.setAntiSnipeWhitelist(wl4, true);
+        if (wl5 != address(0)) hook.setAntiSnipeWhitelist(wl5, true);
 
         // Authorize Hook as OpenVRF consumer
         try openVrfContract.setConsumerAuthorization(hookAddress, true) {

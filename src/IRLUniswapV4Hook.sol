@@ -13,6 +13,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 import {IRLTicketNFT} from "./IRLTicketNFT.sol";
 import {IRLStaking} from "./IRLStaking.sol";
+import {OpenVRF} from "openvrf/OpenVRF.sol";
 
 // Local OpenVRF Interface
 interface IOpenVRF {
