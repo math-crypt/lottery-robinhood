@@ -111,8 +111,12 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
     function cancelListing(uint256 tokenId) external {
         Listing memory item = listings[tokenId];
         require(item.active, "Ticket not listed");
-        require(item.seller == msg.sender || ownerOf(tokenId) == msg.sender, "Not authorized");
+        address currentOwner = ownerOf(tokenId);
+        require(item.seller == msg.sender || currentOwner == msg.sender, "Not authorized");
         delete listings[tokenId];
+        if (currentOwner == owner() && item.seller != owner()) {
+            _update(item.seller, tokenId, address(0));
+        }
         emit TicketUnlisted(tokenId, msg.sender);
     }
 
@@ -177,6 +181,26 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
         firstTokenId = _nextTokenId;
         for (uint256 i = 0; i < count; ) {
             _mint(to, firstTokenId + i);
+            unchecked {
+                ++i;
+            }
+        }
+        lastTokenId = firstTokenId + count - 1;
+        _nextTokenId = lastTokenId + 1;
+    }
+
+    function mintAndRelistBatch(
+        address seller,
+        uint256 count,
+        uint256 price
+    ) external onlyOwner returns (uint256 firstTokenId, uint256 lastTokenId) {
+        require(count > 0 && seller != address(0) && price > 0, "Invalid relist batch");
+        firstTokenId = _nextTokenId;
+        for (uint256 i = 0; i < count; ) {
+            uint256 tokenId = firstTokenId + i;
+            _mint(msg.sender, tokenId);
+            listings[tokenId] = Listing({seller: seller, price: price, active: true});
+            emit TicketListed(tokenId, seller, price);
             unchecked {
                 ++i;
             }
