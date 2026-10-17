@@ -43,6 +43,7 @@ contract IRLStaking is ReentrancyGuard {
 
     IERC20 public immutable stakingToken;
     address public hookContract;
+    address public sherwoodGuildVault;
 
     mapping(address => uint256) public stakedBalance;
     mapping(address => uint256) public eligibleStake;
@@ -62,6 +63,7 @@ contract IRLStaking is ReentrancyGuard {
     event YieldDistributed(uint256 amount);
     event YieldClaimed(address indexed user, uint256 amount);
     event HookRegistered(address indexed hook);
+    event SherwoodGuildRegistered(address indexed guild);
     event InstantTicketsClaimLockApplied(address indexed user, uint256 unlockTime);
 
     constructor(address _stakingToken) {
@@ -78,10 +80,35 @@ contract IRLStaking is ReentrancyGuard {
     }
 
     /**
+     * @notice Registration of the Sherwood Co-Staking Guild Vault for small holders (< 0.1% supply).
+     */
+    function registerSherwoodGuild(address _guild) external {
+        require(
+            (sherwoodGuildVault == address(0) || msg.sender == hookContract) && _guild != address(0),
+            "Guild already registered"
+        );
+        sherwoodGuildVault = _guild;
+        emit SherwoodGuildRegistered(_guild);
+    }
+
+    function _isSherwoodGuild(address user) internal view returns (bool) {
+        if (user == address(0)) return false;
+        if (user == sherwoodGuildVault) return true;
+        if (user.code.length > 0) {
+            (bool ok, bytes memory data) = user.staticcall(abi.encodeWithSignature("mainStaking()"));
+            if (ok && data.length >= 32 && abi.decode(data, (address)) == address(this)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @notice Called by the Uniswap V4 Hook when a staker claims their free staking tickets.
-     * - If the user has ALREADY staked for >= 24h (`block.timestamp >= lastStakedTimestamp[user] + 24h`),
+     * - For the Sherwood Co-Staking Guild pool (`_isSherwoodGuild(user)`), claiming tickets NEVER locks the pooled supply for 24h.
+     * - If an individual user has ALREADY staked for >= 24h (`block.timestamp >= lastStakedTimestamp[user] + 24h`),
      *   they claim their tickets with ZERO unstake lock (remain free to unstake anytime).
-     * - If the user claims BEFORE 24h of staking (`block.timestamp < lastStakedTimestamp[user] + 24h`),
+     * - If an individual user claims BEFORE 24h of staking (`block.timestamp < lastStakedTimestamp[user] + 24h`),
      *   they receive their tickets immediately and their stake is locked for 24h (`unstakeUnlockTime`).
      */
     function onStakingTicketsClaimed(address user) external {
@@ -92,6 +119,15 @@ contract IRLStaking is ReentrancyGuard {
             emit HookRegistered(msg.sender);
         } else {
             require(msg.sender == hookContract, "Only IRL Hook");
+        }
+
+        if (_isSherwoodGuild(user)) {
+            if (sherwoodGuildVault == address(0)) {
+                sherwoodGuildVault = user;
+                emit SherwoodGuildRegistered(user);
+            }
+            // Small-holder Co-Staking Guild pool never locks its supply for 24h when claiming tickets
+            return;
         }
 
         if (block.timestamp < lastStakedTimestamp[user] + STAKE_COOLDOWN) {

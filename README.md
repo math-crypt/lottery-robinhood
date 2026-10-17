@@ -40,26 +40,30 @@ Traditional decentralized finance memecoins and reward tokens suffer from fatal 
 - **Zero Real Utility:** Artificial reflection mechanics dump governance tokens into thin liquidity pools, collapsing the price floor.
 - **Centralized Casinos:** Traditional raffle and lottery projects rely on centralized backend scripts or custodial wallets vulnerable to manipulation.
 
-### The $IRL Solution
-The **Internet Robinhood Lottery ($IRL)** re-engineers tokenomics from first principles launching via **Programmable.market** with **Uniswap V4 Custom Accounting Hooks**:
+#### The $IRL V2 Solution
+The **Internet Robinhood Lottery ($IRL) V2** re-engineers tokenomics from first principles with **Uniswap V4 Custom Accounting Hooks**:
 1. **Zero Chart Sell Pressure (*Swap-and-Liquify*):** All ecosystem taxes are collected natively in WETH directly from the AMM liquidity pool via `PoolManager.take()`. The contract **never** dumps $IRL tokens on the chart.
-2. **Provably Fair Dual Lotteries:** Winner selection is executed autonomously on-chain using decentralized BLS threshold signatures from **OpenVRF** (`drand`).
-3. **Equitable Real Yield Streaming & Hybrid 24h Staking:** 30% of all hourly swap pots stream directly into native ETH dividends for eligible stakers (`0.1%` to `2.0%` tiers). Staking never locks withdrawals by default (`0h` lock); stakers can claim up to 10 free lottery tickets every 4 days either with **0h lock after 24h of staking** (*Mature Claim*) or **immediately upon staking with a 24h unstake lock** (*Instant Claim*).
-4. **Automated Hourly V4 Buyback & Burn (`0.50%` Launch Boost $\rightarrow$ `0.20%` Standard to `0xdead`):** **`0.50%` (`50 bps`)** during the Launch Boost phase and **`0.20%` (`20 bps`)** during the permanent `4.00%` Standard Tax phase accumulates in `buybackPot` on every swap and executes as a **single consolidated Uniswap V4 buyback & burn once every hour** to `0x000...dEaD` (charging the `0.30%` Programmable platform fee once on the internal buyback before swapping the remaining `99.70%` into `$IRL` burned to `0xdead`).
+2. **Strict Human EOA Attribution & Bot/Contract Exclusion:** `_resolveTrader` inspects verified router buyer contexts (`signedRouteContext()` / `IMsgSender.msgSender()`), verifies `hookData` (`decoded == tx.origin` and `code.length == 0` to prevent multi-wallet Sybil spoofing in atomic multi-swap contracts), and strictly falls back to `tx.origin` whenever `sender` is a contract. Smart contracts, routers, and bots (`code.length > 0`) can **never** receive NFT lottery tickets.
+3. **DApp Ticket Claim & 24h P2P Marketplace Relisting:** Earned tickets queued in `claimableTickets[beneficiary]` can be claimed on the DApp (`claimPendingTickets` / `claimPendingTicketsTo`). If left unclaimed after **24 hours**, `relistExpiredClaimableTickets` puts them back into play on the **P2P Marketplace** (`IRLTicketNFT`) where they are valid for that day's **24h Daily Lottery draw**; if unsold on the P2P market and drawn as the winner, **100% of the prize is routed to the Dev Wallet (`owner()`)**.
+4. **Equitable Real Yield Streaming, Hybrid 24h Staking & Sherwood Co-Staking Guild (`0.1%` Zero-Lock):** 30% of all hourly swap pots stream directly into native ETH dividends for eligible stakers (`0.1%` to `2.0%` tiers). Small holders (`< 0.1%` supply) can pool any amount of `$IRL` in **`IRLSherwoodGuildVault.sol`**, which unlocks free staking ticket claims as soon as **`0.1%` of supply (`1,000,000 $IRL`)** is deposited **without ever locking the Guild's supply for 24 hours** (`unstakeUnlockTime == 0`).
+5. **Native On-Chain Referral Engine (`96-byte hookData`):** Binds referrers permanently on-chain, streaming an automatic **`0.25%` (`25 bps`) native ETH commission** to the referrer on every swap (deducted from `protocolPot` share) and granting the referred trader a **`+10%` Hourly Leaderboard Score Boost**.
+6. **Automated Hourly V4 Buyback & Burn (`0.50%` Launch Boost $\rightarrow$ `0.20%` Standard to `0xdead`) & 10-Tier Auto-Withdrawing LP Vault:** Accumulates in `buybackPot` on every swap and executes as a consolidated Uniswap V4 buyback & burn once per hour while automatically checking and withdrawing reached `2%` single-sided LP tiers (`100% ETH`) to the developer wallet.
 
 ---
 
-## 2. Verified Smart Contract Directory
+## 2. Verified Smart Contract & DApp Directory
 
-All smart contracts are developed with **Solidity 0.8.26**, optimized with low-level storage slot packing, DoS-proof direct array indexing, and audited for zero reentrancy risks:
+All smart contracts are developed with **Solidity 0.8.26**, optimized with low-level storage slot packing, `mintBatch` ticket issuance, single-call leaderboard views (`getHourlyLeaderboard`), and audited for zero reentrancy risks:
 
-| Contract | File Path | Standard | Key Architectural Role |
+| Component | File Path | Standard | Key Architectural Role |
 | :--- | :--- | :--- | :--- |
-| **$IRL Token** | [`src/InternetRobinLottery.sol`](src/InternetRobinLottery.sol) | ERC-20 | Fixed-supply 1B token (`18` decimals, zero external mints, `0%` transfer tax). |
-| **V4 Lottery Hook** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects native swap tax (**10.00% Launch Boost Tax for max 24h OR up to $100k MC**: `3.75%` Hourly + `3.75%` Lottery + `2.20%` Protocol & Burn [`1.70%` Protocol + `0.50%` Buyback Burn] + `0.30%` Programmable $\rightarrow$ permanently drops at **24h or $100k MC** to **4.00% Standard Tax**: `1.25% / 1.25% / 1.20% [1.00% Protocol + 0.20% Buyback Burn] / 0.30%`), tracks Top 10 boosted volume, mints tickets, isolates daily/weekly lottery pots by epoch, preserves failed payouts in `unclaimedRewards`, and triggers OpenVRF. |
-| **Real Yield Staking** | [`src/IRLStaking.sol`](src/IRLStaking.sol) | MasterChef Real Yield | Continuous native ETH dividend pool streaming 30% of hourly pots across `[0.1%, 2.0%]` eligible staker tiers with a Hybrid 24h Free-Ticket Claim Mechanic (zero unstake lock by default; 0h lock if free tickets claimed after ≥24h staked, or 24h lock on Instant-Claim <24h). |
-| **Lottery Tickets & Market** | [`src/IRLTicketNFT.sol`](src/IRLTicketNFT.sol) | ERC-721 + P2P Market | Dynamic NFT raffle tickets with built-in P2P Marketplace (`listTicket` / `buyTicket`), 2.0% Lottery Tax routing (`1% Daily + 1% Sunday` for Daily+Weekly tickets or `2% Sunday` for Weekly-only), and weekly holding caps (`42`–`70`). |
-| **Liquidity & Marketing Vault** | [`src/IRLMarketingVault.sol`](src/IRLMarketingVault.sol) | LP Custody & Vault | Seeds `100%` of the 1B `$IRL` supply into Uniswap V4 `PoolManager`: **90% (`900M $IRL`) permanently locked forever** (`PERMANENT_LOCKED_SALT`) and **10% (`100M $IRL`) conditionally locked** in an upper marketing bracket (`MARKETING_VAULT_SALT`) withdrawable only once 100% converted to WETH, followed by an atomic `0.15 ETH` initial buy. |
+| **$IRL Token** | [`src/InternetRobinLottery.sol`](src/InternetRobinLottery.sol) | ERC-20 + EIP-7572 | Fixed-supply 1B token (`18` decimals, zero external mints, `0%` transfer tax, on-chain `contractURI()` metadata, Hook-level Anti-Whale only). |
+| **V4 Lottery Hook (V2)** | [`src/IRLUniswapV4Hook.sol`](src/IRLUniswapV4Hook.sol) | Uniswap V4 Hook | Collects native swap tax (**10.00% Launch Boost** $\rightarrow$ **4.00% Standard Tax**), enforces human EOA attribution & Anti-Sybil `hookData`, runs the on-chain referral engine (`0.25% ETH` + `+10% Score`), manages 24h P2P ticket relisting, 7-day reward rollover, 24h VRF timeout recovery, and triggers OpenVRF. |
+| **Real Yield Staking** | [`src/IRLStaking.sol`](src/IRLStaking.sol) | MasterChef Real Yield | Continuous native ETH dividend pool streaming 30% of hourly pots across `[0.1%, 2.0%]` eligible staker tiers with Hybrid 24h Free-Ticket Claim and zero-lock exemption for `IRLSherwoodGuildVault`. |
+| **Sherwood Co-Staking Guild** | [`src/IRLSherwoodGuildVault.sol`](src/IRLSherwoodGuildVault.sol) | Pooled Co-Staking Vault | Allows small holders (`< 1M $IRL`) to pool tokens with zero minimum, unlock the `30%` ETH Real Yield stream, claim Guild lottery tickets as soon as **`0.1%` (`1,000,000 $IRL`)** is deposited with **zero 24h supply lock**, and share Daily (`>= 8h` staked) & Weekly (`>= 24h` staked) lottery jackpots. |
+| **Lottery Tickets & Market** | [`src/IRLTicketNFT.sol`](src/IRLTicketNFT.sol) | ERC-721 + P2P Market | Dynamic NFT raffle tickets with default on-chain `tokenURI` JSON metadata, `mintBatch`, built-in P2P Marketplace (`listTicket` / `listRelistedTicket` / `buyTicket`), 2.0% Lottery Tax routing, and weekly holding caps (`42`–`70`). |
+| **10-Tier LP & Marketing Vault** | [`src/IRLMarketingVault.sol`](src/IRLMarketingVault.sol) | 80/20 LP Custody & Auto-Vault | Seeds `100%` of the 1B `$IRL` supply into Uniswap V4 `PoolManager`: **80% (`800M $IRL`) permanently locked forever** (`PERMANENT_LOCKED_SALT`) and **20% (`200M $IRL`) split across 10 single-sided LP tiers of 2% each** (`40k, 70k, 100k, 250k, 500k, 750k, 1M, 1.5M, 2M, 5M` MC) that automatically withdraw **100% ETH** to `owner` as each milestone is crossed. |
+| **Web3 DApp ("High-Roller Lounge")** | [`dapp/`](dapp/) | React + Vite + Ethers v6 | Official Web3 interface featuring live pot telemetry, V4 swap terminal with `96-byte` referral `hookData`, `+EV` probability calculator, Staking & Sherwood Guild Sanctuary, 3D P2P Ticket Marketplace, and Referral Dashboard. |
 | **OpenVRF Router** | `lib/openvrf` | Decentralized Oracle | Supplies tamper-proof BLS randomness for daily lotteries and Sunday Mega-Jackpot draws. |
 
 ---
@@ -72,7 +76,7 @@ To ignite massive early prize pots from the very first hour, day, and week of tr
    - **0.30% Immutable Programmable.market Fee (`30 bps`):** Hardcoded to `0xD88539d3c4C460136a733A3Fd60cf6BF269079da`, charged once per buy, sell, and internal buyback.
    - **3.75% Hourly Stream (`35/35/30`):** Supercharges the first hourly pots (`1.3125%` Top 10 Traders / `1.3125%` Active Swappers Cashback / `1.125%` Stakers Real Yield in ETH).
    - **3.75% Epoch-Isolated Dual Lottery Engine (OpenVRF):** Supercharges the first Daily 24h Grand Jackpot (`1.875%` into `dailyPotByDay[dayId]`) and the first Sunday Mega-Jackpot (`1.875%` into `weeklyPotByWeek[weekId]`).
-   - **2.20% Protocol & Deflation:** **`1.70%`** protocol/marketing & gas upkeep (`protocolPot`) + **`0.50%` (`50 bps`)** Hourly Batched V4 Buyback & Burn to `0xdead` (`buybackPot`).
+   - **2.20% Protocol, Referrals & Deflation:** **`1.70%`** protocol/marketing & gas upkeep (`protocolPot`, including `0.25%` on-chain referral commission when applicable) + **`0.50%` (`50 bps`)** Hourly Batched V4 Buyback & Burn to `0xdead` (`buybackPot`).
    - *Fixed 24h Expiry & Fixed $100k MC Permanent Drop:* The `10.00%` Launch Boost Tax drops **permanently and irreversibly** to the **4.00% Standard Tax** as soon as **EITHER 24 hours elapses since `launchTimestamp` (`LAUNCH_TAX_DURATION = 24 hours`) OR the pool reaches the fixed $100,000 Market Cap cutoff** (`disableLaunchTaxSqrtPrice`, `5.0x` from initial $20k MC, set once at initialization and non-adjustable thereafter) — whichever comes first!
 
 2. **⚡ Phase 2 — 4.00% Standard Cruise Tax (Permanent After 24h or $100,000 Market Cap):**
@@ -83,7 +87,7 @@ To ignite massive early prize pots from the very first hour, day, and week of tr
           ┌──────────────────────────────────────────┼──────────────────────────────────┬────────────────────────────────┐
           ▼                                          ▼                                  ▼                                ▼
 0.30% Programmable.market Fee            3.75% ➔ 1.25% Hourly (35/35/30)    3.75% ➔ 1.25% Dual Lottery       2.20% ➔ 1.20% Protocol & Burn
- └── 30 bps Once on Buy/Sell/Buyback      ├── 35% Top 10 Volume Traders      ├── 50% Daily 24h (OpenVRF)      ├── 1.70% ➔ 1.00% Protocol & Gas
+ └── 30 bps Once on Buy/Sell/Buyback      ├── 35% Top 10 Volume Traders      ├── 50% Daily 24h (OpenVRF)      ├── 1.70% ➔ 1.00% Protocol & Ref
      (Immutable 0xD885...79da)            ├── 35% Active Swapper Cashback    └── 50% Sunday Mega-Jackpot      └── 0.50% ➔ 0.20% Hourly V4 Burn
                                           └── 30% Stakers Real Yield (ETH)                                         (Swapped WETH -> $IRL to 0xdead)
 ```
@@ -92,137 +96,107 @@ To ignite massive early prize pots from the very first hour, day, and week of tr
 - Enforced at **exactly `0.30%` (`30 bps`) once** on normal buys, normal sells, and internal buybacks (`executeBuybackAndBurn`) directly to the immutable constant `PROGRAMMABLE_FEE_RECIPIENT = 0xD88539d3c4C460136a733A3Fd60cf6BF269079da` without double-charging.
 
 ### ⏱️ 2. Hourly Stream (`3.75%` Launch Boost $\rightarrow$ `1.25%` Standard: 35% Top 10 / 35% Cashback / 30% Stakers)
-- **35% Top 10 of the Hour (`topTradersPerHour`):** Distributed strictly among the **Top 10 traders of that hour** (`1.3125%` Boost / `0.4375%` Standard), ranked and weighted by their **Staking-Boosted Volume Score** (`+0%` to `+50%` bonus up to `2.0%` staked).  
-  *Concrete Example:* If two traders each execute `0.05 WETH` of volume during the hour, and one of them stakes `2.0%` of the supply (`20,000,000 $IRL` = `+50%` volume bonus), the non-staker is counted at **`0.050 WETH`** while the `2.0%` staker is counted at **`0.075 WETH`** (`0.05 × 1.50`) for both Top 10 ranking and Top 10 pot share!
+- **35% Top 10 of the Hour (`topTradersPerHour`):** Distributed strictly among the **Top 10 traders of that hour** (`1.3125%` Boost / `0.4375%` Standard), ranked and weighted by their **Staking-Boosted Volume Score** (`+0%` to `+50%` staking bonus up to `2.0%` staked, plus **`+10%` Referral Boost** if referred).
 - **35% Active Swapper Hourly Cashback:** Distributed to **all traders who traded during the hour** (**`1.3125%` cashback during Launch Boost**, then **`0.4375%` standard cashback**), accumulated throughout the hour and **distributed once per hour** during the automated hourly upkeep.
-- **30% Native ETH Real Yield (`0.1%` to `2.0%` Staking Tiers):** Streamed in native ETH (`1.125%` Boost / `0.375%` Standard) to `$IRL` stakers ranked between **`0.1%` (`1,000,000 $IRL` minimum)** and **`2.0%` (`20,000,000 $IRL` maximum cap per wallet)** via the `IRLStaking` MasterChef `accEthPerShare` engine.
-- **Unpaid Rewards Protection (`unclaimedRewards`):** If a recipient wallet temporarily rejects native ETH during hourly distribution or lottery fulfillment, their unpaid reward is **never** moved to `protocolPot`; it is credited to `unclaimedRewards[recipient]` and remains claimable by the rightful recipient at any time via `claimUnclaimedRewards()`.
+- **30% Native ETH Real Yield (`0.1%` to `2.0%` Staking Tiers):** Streamed in native ETH (`1.125%` Boost / `0.375%` Standard) to `$IRL` stakers ranked between **`0.1%` (`1,000,000 $IRL` minimum)** and **`2.0%` (`20,000,000 $IRL` maximum cap per wallet)** — including the **Sherwood Co-Staking Guild (`IRLSherwoodGuildVault.sol`)** for small holders — via the `IRLStaking` MasterChef `accEthPerShare` engine.
+- **Fail-Safe Unpaid Rewards Protection (`unclaimedRewards` & 7-Day Rollover):** If a recipient wallet rejects native ETH during hourly distribution, lottery fulfillment, or referral payouts, their unpaid reward is credited to `unclaimedRewards[recipient]` (tracked in `totalUnclaimedLiabilities`). The beneficiary (or their delegate) can claim it at any time via `claimUnclaimedRewards()`, `claimUnclaimedRewardsTo(beneficiary, recipient)`, or as ERC-20 WETH via `claimUnclaimedRewardsAsWETH(beneficiary, recipient)`. If left unclaimed for **7 days (`UNCLAIMED_REWARD_EXPIRY`)**, `rollOverExpiredReward(beneficiary)` rolls it back into the active Daily Lottery Pot.
 
-### 🏆 3. Epoch-Isolated Dual Lottery Engine (`3.75%` Launch Boost $\rightarrow$ `1.25%` Standard via OpenVRF) & 2.0% P2P Marketplace Tax
-- **50% Daily Grand Jackpot (`1.875%` at Launch $\rightarrow$ `0.625%` Standard):** Accumulated in `dailyPotByDay[dayId]` and drawn every midnight strictly among tickets minted *that day* (`[dayStartTicketId[dayId], dayEndTicketId[dayId]]`), ensuring delayed keeper execution can never mix prize funds across days.
-- **50% Sunday Mega-Jackpot (`1.875%` at Launch $\rightarrow$ `0.625%` Standard):** Accumulated in `weeklyPotByWeek[weekId]` and drawn every Sunday across **all** tickets minted from Monday through Sunday (`[weekStartTicketId[weekId], weekEndTicketId[weekId]]`).
-- **Validated P2P Ticket Marketplace (`IRLTicketNFT.buyTicket`):** Every secondary ticket sale on the P2P Marketplace pays **98.0% to the seller** and routes a **2.0% Lottery Tax** directly into the epoch-isolated lottery pots via `IRLUniswapV4Hook.receiveMarketplaceTax(tokenId)`:
-  - **Daily + Weekly Ticket (minted today):** Splits the 2% tax **50/50** (`1.0%` to `dailyPotByDay[currentDay]` + `1.0%` to `weeklyPotByWeek[currentWeek]`).
-  - **Weekly-Only Ticket (minted earlier in the week):** Routes **100% of the 2% tax** (`2.0%`) directly to `weeklyPotByWeek[currentWeek]`.
+### 🏆 3. Epoch-Isolated Dual Lottery Engine (`3.75%` Launch Boost $\rightarrow$ `1.25%` Standard via OpenVRF), 24h P2P Ticket Relisting & 2.0% P2P Marketplace Tax
+- **50% Daily Grand Jackpot (`1.875%` at Launch $\rightarrow$ `0.625%` Standard):** Accumulated in `dailyPotByDay[dayId]` (and directly seedable at any time via `seedDailyPot()`) and drawn every midnight strictly among tickets minted or relisted *that day* (`[dayStartTicketId[dayId], dayEndTicketId[dayId]]`).
+- **50% Sunday Mega-Jackpot (`1.875%` at Launch $\rightarrow$ `0.625%` Standard):** Accumulated in `weeklyPotByWeek[weekId]` (directly seedable via `seedSundayPot()`) and drawn every Sunday across **all** tickets minted from Monday through Sunday (`[weekStartTicketId[weekId], weekEndTicketId[weekId]]`).
+- **24-Hour Unclaimed Ticket Relisting on P2P Marketplace (`relistExpiredClaimableTickets`):** If tickets put aside in `claimableTickets[beneficiary]` are not claimed within **24 hours (`UNCLAIMED_TICKET_EXPIRY`)**, they are minted into Hook custody, registered in today's `dayStartTicketId[currentDay] .. dayEndTicketId[currentDay]` range (making them **100% valid for the active 24h Daily Lottery draw**), and listed for sale on the **P2P Marketplace (`IRLTicketNFT.listRelistedTicket`)**. If bought on the P2P market, the buyer owns the ticket and competes in the 24h draw; if **unsold** on the P2P market and drawn as the winning ticket (`winner == address(this)`), **100% of the lottery prize is sent to the Dev Wallet (`owner()`)**.
+- **24-Hour VRF Timeout Recovery (`cancelExpiredLotteryRequest`):** If an OpenVRF request remains unfulfilled for `24 hours`, its locked prize is safely returned to the active lottery pot and any late callback becomes a no-op.
+- **Validated P2P Ticket Marketplace (`IRLTicketNFT.buyTicket`):** Every secondary ticket sale on the P2P Marketplace pays **98.0% to the seller** and routes a **2.0% Lottery Tax** directly into the epoch-isolated lottery pots via `IRLUniswapV4Hook.receiveMarketplaceTax(tokenId)`.
 
-### ⚙️ 4. Protocol Solvency & Hourly Batched Deflation (`2.20%` Launch Boost $\rightarrow$ `1.20%` Standard)
-- **Protocol, Marketing & VRF Gas Upkeep (`1.70%` Boost $\rightarrow$ `1.00%` Standard):** Funds decentralized OpenVRF oracle gas, Keepers automation, and global growth (`protocolPot`).
-- **Hourly Batched V4 Buyback & Burn (`0.50%` Boost $\rightarrow$ `0.20%` Standard in `buybackPot`):** On every buy and sell, **`0.50%` (`50 bps`)** during Launch Boost and **`0.20%` (`20 bps`)** during Standard Tax accumulates in `buybackPot` rather than executing micro-swaps on every trade. **Once every hour** (during the automated hourly upkeep or via `executeBuybackAndBurn` gated by `lastBuybackHour`), the Hook deducts the `0.30%` (`30 bps`) Programmable platform fee once from `buybackPot`, swaps the remaining `99.70%` in a single consolidated `WETH -> $IRL` transaction on the Uniswap V4 pool, and permanently burns the purchased `$IRL` to `0x000000000000000000000000000000000000dEaD`.
+### ⚙️ 4. Protocol Solvency, Native On-Chain Referrals & Hourly Batched Deflation (`2.20%` Launch Boost $\rightarrow$ `1.20%` Standard)
+- **Protocol, Marketing, VRF Gas Upkeep & `0.25%` On-Chain Referrals (`1.70%` Boost $\rightarrow$ `1.00%` Standard):** Funds decentralized OpenVRF oracle gas (`withdrawProtocolFeesAmount` allows partial withdrawals so VRF fee reserves always remain funded), Keepers automation, and pays **`0.25%` (`25 bps`) of swap volume in native ETH** directly to the trader's on-chain referrer (`referrerOf[trader]`).
+- **Hourly Batched V4 Buyback & Burn (`0.50%` Boost $\rightarrow$ `0.20%` Standard in `buybackPot`):** Consolidated once per hour into a single `WETH -> $IRL` swap on the Uniswap V4 pool burned permanently to `0x000000000000000000000000000000000000dEaD`.
 
 ---
 
-## 4. Mathematical Formulas & Staking Quotas
+## 4. Mathematical Formulas, Staking Quotas & Sherwood Co-Staking Guild
 
-### 🎯 Progressive Staking Quotas (`0.1%` to `2.0%` Tiers) & Hybrid 24h Free-Ticket Claim
-To ensure long-term decentralized alignment, prevent whale monopolization, and eliminate flash-loan Sybil attacks **without locking normal stakers from withdrawing**, staking benefits scale **progressively and linearly** up to the **2.0% supply quota (`20,000,000 $IRL`)**:
+### 🎯 Progressive Staking Quotas (`0.1%` to `2.0%` Tiers), Sherwood Guild & Hybrid 24h Free-Ticket Claim
+To ensure long-term decentralized alignment, prevent whale monopolization, and empower small holders (`< 0.1%` supply), staking benefits scale **progressively** from **`0.1%` (`1,000,000 $IRL`)** up to the **2.0% supply quota (`20,000,000 $IRL`)**:
 
 - **Total Supply:** `1,000,000,000 $IRL`
-- **Eligible Real Yield Staking Range:** `1,000,000 $IRL (0.1% min)` to `20,000,000 $IRL (2.0% max cap per wallet)`
-- **Hybrid 24h Staking & Free-Ticket Claim Mechanic (`IRLStaking.sol` & `IRLUniswapV4Hook.sol`):**
-  - **Zero Unstake Lock by Default (`0h Lock`):** Depositing `$IRL` into `stake()` **never** locks `unstake()`. A holder who stakes to enjoy their volume multiplier (`+2.5%` to `+50%`), expanded ticket caps (`43.4` to `70/week`), or 30% ETH Real Yield can unstake at any time without waiting 24 hours.
-  - **Option A — Mature Claim (`>= 24h` Staked $\rightarrow$ `0h Lock`):** Once a staker has kept their `$IRL` staked for at least **24 hours** (`block.timestamp >= lastStakedTimestamp[user] + 24 hours`), they can claim their free staking tickets (up to **10 tickets every 4 days**) with **zero unstake lock** (`0h lock`, remaining free to unstake whenever they want).
-  - **Option B — Instant Claim (`< 24h` Staked $\rightarrow$ `24h Lock`):** If a staker wants to claim their **up to 10 free staking tickets immediately** after staking (before 24 hours of staking have elapsed), they can do so right away, which automatically locks their `unstake()` for **24 hours** (`unstakeUnlockTime[user] = block.timestamp + 24 hours`).
-  - **Why This Solves Multi-Wallet Sybil Ticket Farming:** Every batch of 10 free staking tickets mathematically requires **24 hours of token immobilization** — either *pre-paid* (Option A: 24h already staked before claiming) or *post-paid* (Option B: 24h unstake lock triggered upon instant claiming) — making it impossible to rotate the same `$IRL` across multiple wallets for infinite free tickets.
-- **Maximum Volume Score Bonus:** `+50%` at `2.0%` staked (linear from `0%` to `+50%`; applies to both Top 10 hourly volume score and ticket volume threshold)
-- **Free Staking Tickets:** `Up to 10 Tickets every 4 days` (1 ticket per `2,000,000 $IRL` staked)
-- **Daily Volume Ticket Limit:** `6 Tickets/Day (0%) scaling to 10 Tickets/Day (2% Staked)`
-- **On-Chain Marketplace & Holding Caps:** `6 Daily / 42 Weekly (0%) scaling to 10 Daily / 70 Weekly (2% Staked)`, enforced directly inside `IRLTicketNFT._update`
+- **Minimum Threshold for Real Yield & First Staking Ticket (`0.1%` Supply):** `1,000,000 $IRL` (`MIN_STAKING_TICKET_THRESHOLD = 1_000_000 ether` unlocks at least **1 free ticket** every 4 days, scaling up to **10 tickets** at `20,000,000 $IRL`).
+- **🏹 Sherwood Co-Staking Guild for Small Holders (`IRLSherwoodGuildVault.sol`):**
+  - Small holders (`< 1,000,000 $IRL`) can deposit **any amount (`> 0`)** into the Sherwood Guild.
+  - As soon as the Guild's pooled balance reaches **`0.1%` of supply (`1,000,000 $IRL`)**, the Guild has the right to claim its free staking lottery tickets immediately with **ZERO 24h lock on the Guild's supply (`unstakeUnlockTime == 0`)** — small holders remain free to unstake at any time!
+  - When a Guild ticket wins a lottery draw, the ETH jackpot is shared pro-rata among Guild members who are **still staking at the exact moment of the draw** and have staked for **`>= 8 hours`** (Daily Lottery) or **`>= 24 hours`** (Weekly Sunday Mega-Jackpot).
+- **Hybrid 24h Staking & Free-Ticket Claim Mechanic for Individual Stakers (`IRLStaking.sol` & `IRLUniswapV4Hook.sol`):**
+  - **Zero Unstake Lock by Default (`0h Lock`):** Depositing `$IRL` into `stake()` **never** locks `unstake()`.
+  - **Option A — Mature Claim (`>= 24h` Staked $\rightarrow$ `0h Lock`):** Once an individual staker has staked for `>= 24 hours`, they claim their free tickets with **zero unstake lock**.
+  - **Option B — Instant Claim (`< 24h` Staked $\rightarrow$ `24h Lock`):** If an individual staker claims free tickets before 24h of staking, their `unstake()` is locked for 24 hours (`unstakeUnlockTime[user] = block.timestamp + 24 hours`).
+- **Maximum Volume Score Bonus:** `+50%` at `2.0%` staked (plus `+10%` on-chain referral boost).
+- **Free Staking Tickets:** `1 Ticket at 0.1% (1,000,000 $IRL) scaling up to 10 Tickets every 4 days at 2.0% (20,000,000 $IRL)`.
+- **Daily Volume Ticket Limit:** `6 Tickets/Day (0%) scaling to 10 Tickets/Day (2% Staked)`.
+- **On-Chain Marketplace & Holding Caps:** `6 Daily / 42 Weekly (0%) scaling to 10 Daily / 70 Weekly (2% Staked)`, enforced directly inside `IRLTicketNFT._update`.
 
 ```text
 Staking Multiplier Formula (Top 10 Leaderboard & Ticket Threshold):
 ScoreMultiplier = 100% + min( (Staked_IRL × 50%) / 20,000,000 , 50% )
-Example at 2.0% Stake (20M $IRL): 0.050 WETH swap × 150% = 0.075 WETH effective volume
 
 Eligible Real Yield Weight (30% Hourly Staker Stream):
 EligibleStake(u) = 0                              if Staked_IRL < 1,000,000 (0.1%)
 EligibleStake(u) = min(Staked_IRL, 20,000,000)    if Staked_IRL >= 1,000,000 (capped at 2.0%)
 
-Free Staking Tickets Formula (Every 4 Days — Hybrid Claim):
-StakerTickets_4Days = min( (Staked_IRL × 10) / 20,000,000 , 10 Tickets every 4 days )
-UnstakeUnlockTime(u) = (ClaimedAt < StakedAt + 24h) ? (ClaimedAt + 24h) : 0 (Unlocked)
-
-P2P Marketplace 2.0% Lottery Tax Routing:
-MarketplaceTax(2%) = DailyAndWeeklyTicket ? (1.0% DailyPot + 1.0% SundayPot) : (2.0% SundayPot)
-
-Daily Volume Ticket Limit:
-DailyVolumeTicketLimit = 6 + min( (Staked_IRL × 4) / 20,000,000 , 4 )
-
-Weekly On-Chain NFT Holding Cap:
-WeeklyMarketplaceCap = DailyVolumeTicketLimit × 7
+Free Staking Tickets Formula (Every 4 Days):
+StakerTickets_4Days = max(1, (Staked_IRL × 10) / 20,000,000)   for Staked_IRL >= 1,000,000 (0.1%), capped at 10
+UnstakeUnlockTime(Guild) = 0 (Never blocks 24h supply for Sherwood Co-Staking Guild)
 ```
 
 | % Staked | Staked $IRL | 30% Real Yield Eligible Weight | Volume Multiplier (Top 10 & Tickets) | 0.05 WETH Swap Counted As | Swap Required for 1 Ticket (0.10 ETH Base) | Free Staking Tickets (Every 4 Days) | Daily Volume Ticket Limit | On-Chain Holding Caps |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **0.00%** (Non-staker) | 0 $IRL | 0 $IRL *(Below 0.1%)* | +0.00% (1.00x) | **0.0500 WETH** | **0.1000 ETH** | 0 Tickets | 6 Tickets / Day | 6 Daily / 42 Weekly |
-| **0.10% (Min Yield Tier)** | 1,000,000 $IRL | **1,000,000 $IRL (0.10%)** | +2.50% (1.025x) | **0.05125 WETH** | **~0.0976 ETH** | 0 Tickets | 6 Tickets / Day | 6 Daily / 42 Weekly |
+| **0.10% (Min Yield & Guild Tier)** | 1,000,000 $IRL | **1,000,000 $IRL (0.10%)** | +2.50% (1.025x) | **0.05125 WETH** | **~0.0976 ETH** | **1 Ticket / 4 Days** | 6 Tickets / Day | 6 Daily / 42 Weekly |
 | **0.25%** | 2,500,000 $IRL | **2,500,000 $IRL (0.25%)** | +6.25% (1.0625x) | **0.0531 WETH** | **~0.0941 ETH** | 1 Ticket / 4 Days | 6 Tickets / Day | 6 Daily / 42 Weekly |
 | **0.50%** | 5,000,000 $IRL | **5,000,000 $IRL (0.50%)** | +12.50% (1.125x) | **0.05625 WETH** | **~0.0889 ETH** | 2 Tickets / 4 Days | 7 Tickets / Day | 7 Daily / 49 Weekly |
 | **0.75%** | 7,500,000 $IRL | **7,500,000 $IRL (0.75%)** | +18.75% (1.1875x) | **0.0594 WETH** | **~0.0842 ETH** | 3 Tickets / 4 Days | 7 Tickets / Day | 7 Daily / 49 Weekly |
 | **1.00%** | 10,000,000 $IRL | **10,000,000 $IRL (1.00%)** | +25.00% (1.25x) | **0.0625 WETH** | **0.0800 ETH** | 5 Tickets / 4 Days | 8 Tickets / Day | 8 Daily / 56 Weekly |
 | **2.00% (Max Tier)** | **20,000,000 $IRL** | **20,000,000 $IRL (2.00% Max)** | **+50.00% (1.50x)** | **0.0750 WETH** | **~0.0667 ETH** *(0.075 qualifies)* | **10 Tickets / 4 Days (Max)** | **10 Tickets / Day (Max)** | **10 Daily / 70 Weekly** |
 
-### ⚖️ Equitable 30% Real Yield Redistribution (`0.1%` to `2.0%` Bracket)
-In `IRLStaking.sol`, the 30% hourly stream is distributed in $O(1)$ gas complexity across all stakers holding between **0.1% (`1,000,000 $IRL`)** and **2.0% (`20,000,000 $IRL` cap)**:
-
-```text
-Equitable Staker Real Yield:
-StakerRealYield_ETH = ( EligibleStake[u] / TotalEligibleStaked ) × 30%_Hourly_Pot
-```
-
-- **Bounded Fairness (`0.1%` to `2.0%`):** Requires at least `0.1%` (`1,000,000 $IRL`) to enter the Real Yield ranking and caps any single wallet's weight at `2.0%` (`20,000,000 $IRL`) so whales cannot dilute community stakers.
-- **Zero Orphaned ETH:** If trades occur before the first eligible staker deposits, the 30% ETH stream is safely buffered in `unallocatedYield` and distributed automatically to the first eligible stakers.
-- **Hybrid Anti-Sybil Free Ticket Claim:** Every batch of 10 free staking tickets requires 24 hours of token immobilization — either **pre-paid** (staked ≥ 24h before claiming $\rightarrow$ 0h unstake lock) or **post-paid** (Instant-Claimed at < 24h staked $\rightarrow$ 24h unstake lock), preventing multi-wallet Sybil loops while never locking normal stakers.
-
-### 📊 Hourly Distribution: 35% Top 10 + 35% Hourly Cashback
-At the end of every hour, `performUpkeep` distributes both trader reward pools in a single batch queue:
-
-```text
-1. Trader Boosted Hourly Score (with Staking Multiplier up to 1.50x at 2% Stake):
-   TraderHourlyScore[i] = Volume_WETH[i] × ScoreMultiplier[i]
-
-2. 35% Top 10 Pot (Strictly for the Top 10 Traders of the Hour):
-   Top10Payout[i] = 0.35 × HourlyPot × ( TraderHourlyScore[i] / SumOfTop10Scores )   (if i ∈ Top 10)
-
-3. 35% Active Swapper Cashback (Paid Once Per Hour to ALL Traders of the Hour):
-   HourlyCashback[i] = 0.4375% × Volume_WETH[i]  (1.3125% during Launch Boost)
-```
-
 ---
 
 ## 5. The Dual Lottery Engine (OpenVRF)
 
-Raffle tickets are dynamic ERC-721 NFTs minted automatically upon reaching the volume threshold (`0.10 WETH` cumulative swap volume, boosted by staking multipliers) or via progressive 4-day staking tiers.
+Raffle tickets are dynamic ERC-721 NFTs minted automatically upon reaching the volume threshold (`0.10 WETH` cumulative swap volume, boosted by staking multipliers), via progressive 4-day staking tiers, or relisted on the P2P Marketplace after 24 hours if left unclaimed in `claimableTickets`.
 
 ### 🕒 Daily Grand Jackpot (Strict 24h Epoch-Isolated Window)
-- Tickets minted between `[dayStartTicketId[dayId], dayEndTicketId[dayId]]` are indexed chronologically, and prize funds are isolated per day in `dailyPotByDay[dayId]`.
+- Tickets minted or relisted between `[dayStartTicketId[dayId], dayEndTicketId[dayId]]` are indexed chronologically, and prize funds are isolated per day in `dailyPotByDay[dayId]`.
 - Every 24 hours at midnight UTC, the Hook requests randomness from the OpenVRF BLS oracle for the finished day's isolated pot (`dailyPotByDay[targetDay]`).
-- **Rollover Guarantee:** If zero volume was traded during the day, the daily pot automatically rolls over into the next day / Sunday Mega-Jackpot!
+- **Unsold Relisted Ticket Rule:** If a ticket relisted from expired `claimableTickets` onto the P2P Marketplace is not bought before the draw and is selected as the winning ticket (`nftTicket.ownerOf(winningTokenId) == address(hook)`), **100% of the prize is transferred to the Dev Wallet (`owner()`)**.
 
 ### 🌟 Sunday Mega-Jackpot (Weekly Monster Draw)
-- Encompasses all tickets minted Monday through Sunday `[weekStartTicketId[weekId], weekEndTicketId[weekId]]`, with prize funds isolated per week in `weeklyPotByWeek[weekId]`.
+- Encompasses all tickets minted or relisted Monday through Sunday `[weekStartTicketId[weekId], weekEndTicketId[weekId]]`, with prize funds isolated per week in `weeklyPotByWeek[weekId]`.
 - Drawn every Sunday evening via OpenVRF, delivering monumental weekend community windfalls.
 
 ---
 
-## 6. Verifiable LP Custody & Single-Sided Marketing Vault (`IRLMarketingVault.sol`)
+## 6. Verifiable 80/20 LP Custody & 10-Tier Auto-Withdrawing Dev/Marketing Vault (`IRLMarketingVault.sol`)
 
-To solve the historical problem of developer tokens dumping on buyers, `100%` of the `1,000,000,000 $IRL` supply is funded into **`IRLMarketingVault.sol`** during the atomic launch and seeded into Uniswap V4 `PoolManager` as two distinct, verifiable positions:
+To guarantee deep permanent liquidity while funding progressive protocol growth strictly in converted ETH as market-cap milestones are achieved, `100%` of the `1,000,000,000 $IRL` supply is funded into **`IRLMarketingVault.sol`** during the atomic launch and seeded into Uniswap V4 `PoolManager` as **11 verifiable positions**:
 
-1. **90% Core Liquidity Permanently Locked Forever (`900,000,000 $IRL` — `PERMANENT_LOCKED_SALT`):**
+1. **80% Core Liquidity Permanently Locked Forever (`800,000,000 $IRL` — `PERMANENT_LOCKED_SALT`):**
    - Seeded across the full upward price curve (`[permTickLower, permTickUpper]`).
-   - `IRLMarketingVault` contains **zero withdrawal or decrease function** for `PERMANENT_LOCKED_SALT`. The 90% core liquidity principal is permanently and irreversibly locked in `PoolManager` forever.
-2. **10% Marketing Allocation Conditionally Locked in Upper Bracket (`100,000,000 $IRL` — `MARKETING_VAULT_SALT`):**
-   - Seeded as a single-sided `$IRL` concentrated liquidity order strictly above the initial launch price (`[marketingTickLower, marketingTickUpper]`).
-   - **Directional Verification:** `decreaseMarketingLiquidity` enforces on-chain:
-     ```solidity
-     require(
-         irlIsCurrency0 ? currentTick >= marketingTickUpper : currentTick <= marketingTickLower,
-         "Price has not crossed marketing bracket"
-     );
-     ```
-   - **The developer cannot withdraw a single $IRL token.** Marketing liquidity can only be withdrawn after market demand has organically bought through the bracket, converting `100%` of the position into `WETH`.
+   - `IRLMarketingVault` contains **zero withdrawal or decrease function** for `PERMANENT_LOCKED_SALT`. The 80% core liquidity principal is permanently and irreversibly locked in `PoolManager` forever.
+2. **20% Multi-Tier Dev/Marketing Vault (`200,000,000 $IRL` — 10 Single-Sided LP Tiers of 2% Each):**
+   - Split into **10 independent single-sided `$IRL` concentrated liquidity positions of `20,000,000 $IRL` (`2.0%` of supply) each** (`MARKETING_TIER_BASE_SALT + i`).
+   - **10 Exact Market Cap Milestones:**
+     - **Tier 0 (`2%`):** `$40,000 MC` (`2.0x` launch price)
+     - **Tier 1 (`2%`):** `$70,000 MC` (`3.5x` launch price)
+     - **Tier 2 (`2%`):** `$100,000 MC` (`5.0x` launch price)
+     - **Tier 3 (`2%`):** `$250,000 MC` (`12.5x` launch price)
+     - **Tier 4 (`2%`):** `$500,000 MC` (`25.0x` launch price)
+     - **Tier 5 (`2%`):** `$750,000 MC` (`37.5x` launch price)
+     - **Tier 6 (`2%`):** `$1,000,000 MC` (`50.0x` launch price)
+     - **Tier 7 (`2%`):** `$1,500,000 MC` (`75.0x` launch price)
+     - **Tier 8 (`2%`):** `$2,000,000 MC` (`100.0x` launch price)
+     - **Tier 9 (`2%`):** `$5,000,000 MC` (`250.0x` launch price)
+   - **Automatic 100% ETH Withdrawal by the Contract (`autoWithdrawReachedTiers`):** Once the pool price crosses a tier's upper tick bound, that 2% position is **100% converted into WETH**. The contract automatically withdraws the converted WETH, unwraps it to **100% native ETH**, and transfers it directly to the developer wallet (`owner`) during swaps/upkeeps!
 3. **Atomic Initial Buy (`0.15 ETH`):**
-   - Immediately after seeding the 90%/10% liquidity positions in the same atomic launch plan, `executeInitialBuy` swaps `0.15 ETH` for `~16.25M $IRL` (`~1.625%` of supply, within the `2.0%` max wallet cap).
+   - Immediately after seeding the 80% permanent LP + 10×2% tiered vault positions in the same atomic launch plan, `executeInitialBuy` swaps `0.15 ETH` for `$IRL`.
 
 ---
 

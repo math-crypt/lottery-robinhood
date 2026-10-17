@@ -20,20 +20,33 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IWETHVault {
     function deposit() external payable;
+    function withdraw(uint256 wad) external;
     function transfer(address to, uint256 value) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /**
  * @title IRLMarketingVault
- * @notice Trustless Liquidity Custody & Marketing Vault for Internet Robinhood Lottery ($IRL).
+ * @notice Trustless Liquidity Custody & 10-Tier Auto-Withdrawing Dev/Marketing Vault for $IRL V2.
  * Clearly separates:
- * 1. 90% Permanently Locked Liquidity (900,000,000 $IRL, `PERMANENT_LOCKED_SALT`):
+ * 1. 80% Permanently Locked Liquidity (800,000,000 $IRL, `PERMANENT_LOCKED_SALT`):
  *    Seeded into Uniswap V4 PoolManager with NO withdrawal or decrease function anywhere in the contract.
  *    Its principal is permanently and irreversibly locked on-chain forever.
- * 2. 10% Conditionally Withdrawable Marketing Liquidity (100,000,000 $IRL, `MARKETING_VAULT_SALT`):
- *    Can ONLY be withdrawn once the pool's current tick has strictly crossed the marketing bracket
- *    (`isIrlToken0 ? currentTick >= marketingTickUpper : currentTick <= marketingTickLower`),
- *    mathematically guaranteeing 100% conversion of $IRL into WETH before withdrawal.
+ * 2. 20% Multi-Tier Auto-Withdrawing Dev/Marketing Liquidity (200,000,000 $IRL, `MARKETING_VAULT_SALT` base):
+ *    Split into 10 distinct 2% single-sided LP tiers (`20,000,000 $IRL` per tier) at exact Market Cap milestones:
+ *    - Tier 0:  $40,000 MC (2.0x initial price, +6960 ticks)
+ *    - Tier 1:  $70,000 MC (3.5x initial price, +12540 ticks)
+ *    - Tier 2: $100,000 MC (5.0x initial price, +16080 ticks)
+ *    - Tier 3: $250,000 MC (12.5x initial price, +25260 ticks)
+ *    - Tier 4: $500,000 MC (25.0x initial price, +32220 ticks)
+ *    - Tier 5: $750,000 MC (37.5x initial price, +36240 ticks)
+ *    - Tier 6: $1,000,000 MC (50.0x initial price, +39120 ticks)
+ *    - Tier 7: $1,500,000 MC (75.0x initial price, +43200 ticks)
+ *    - Tier 8: $2,000,000 MC (100.0x initial price, +46080 ticks)
+ *    - Tier 9: $5,000,000 MC (250.0x initial price, +55200 ticks)
+ *    Each tier can ONLY be withdrawn once the pool's current tick has strictly crossed that tier's bracket
+ *    (`isIrlToken0 ? currentTick >= tierTickUpper[i] : currentTick <= tierTickLower[i]`),
+ *    mathematically guaranteeing 100% conversion of $IRL into WETH/ETH before automatic withdrawal to `owner`.
  */
 contract IRLMarketingVault is IERC721Receiver {
     using StateLibrary for IPoolManager;
@@ -41,15 +54,18 @@ contract IRLMarketingVault is IERC721Receiver {
     using CurrencyLibrary for Currency;
 
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
-    bytes32 public constant PERMANENT_LOCKED_SALT = keccak256("IRL_PERMANENT_LOCKED_LP_90");
-    bytes32 public constant MARKETING_VAULT_SALT = keccak256("IRL_MARKETING_VAULT_LP_10");
+    bytes32 public constant PERMANENT_LOCKED_SALT = keccak256("IRL_PERMANENT_LOCKED_LP_80");
+    bytes32 public constant MARKETING_VAULT_SALT = keccak256("IRL_MARKETING_VAULT_LP_20");
 
-    uint256 public constant PERMANENT_LP_AMOUNT = 900_000_000 ether;
-    uint256 public constant MARKETING_LP_AMOUNT = 100_000_000 ether;
+    uint256 public constant PERMANENT_LP_AMOUNT = 800_000_000 ether;
+    uint256 public constant MARKETING_LP_AMOUNT = 200_000_000 ether;
+    uint256 public constant NUM_MARKETING_TIERS = 10;
+    uint256 public constant TIER_LP_AMOUNT = 20_000_000 ether; // 2% per tier
 
     uint8 private constant ACTION_SEED_LP = 1;
     uint8 private constant ACTION_DECREASE_MARKETING_LP = 2;
     uint8 private constant ACTION_INITIAL_BUY = 3;
+    uint8 private constant ACTION_WITHDRAW_TIER = 4;
 
     address public immutable owner;
     IPoolManager public immutable poolManager;
@@ -68,6 +84,11 @@ contract IRLMarketingVault is IERC721Receiver {
     int24 public marketingTickUpper;
     uint128 public marketingLiquidity;
 
+    int24[10] public tierTickLower;
+    int24[10] public tierTickUpper;
+    uint128[10] public tierLiquidity;
+    bool[10] public tierWithdrawn;
+
     event PermanentLiquidityLocked(
         int24 tickLower,
         int24 tickUpper,
@@ -81,6 +102,21 @@ contract IRLMarketingVault is IERC721Receiver {
         uint128 liquidity,
         uint256 irlAmount,
         bytes32 salt
+    );
+    event MarketingTierSeeded(
+        uint256 indexed tierIndex,
+        uint256 targetMarketCapUsd,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 liquidity,
+        bytes32 salt
+    );
+    event MarketingTierAutoWithdrawn(
+        uint256 indexed tierIndex,
+        uint256 targetMarketCapUsd,
+        uint128 liquidityRemoved,
+        uint256 ethDeliveredToOwner,
+        address indexed recipient
     );
     event InitialBuyExecuted(address indexed buyer, uint256 ethIn, uint256 irlOut);
     event LiquidityDecreased(uint256 indexed tokenId, uint256 amount0, uint256 amount1);
@@ -96,6 +132,8 @@ contract IRLMarketingVault is IERC721Receiver {
         irlToken = _irlToken;
     }
 
+    receive() external payable {}
+
     modifier onlyOwner() {
         require(
             msg.sender == owner ||
@@ -108,6 +146,50 @@ contract IRLMarketingVault is IERC721Receiver {
     function setIrlToken(address _irlToken) external onlyOwner {
         require(irlToken == address(0), "IRL token already set");
         irlToken = _irlToken;
+    }
+
+    /**
+     * @notice Returns the deterministic salt for each of the 10 marketing LP tiers (0..9).
+     */
+    function getTierSalt(uint256 tierIndex) public pure returns (bytes32) {
+        require(tierIndex < NUM_MARKETING_TIERS, "Invalid tier");
+        return keccak256(abi.encodePacked(MARKETING_VAULT_SALT, tierIndex));
+    }
+
+    /**
+     * @notice Returns the target Market Cap in USD (relative to $20,000 initial launch MC) for tier `tierIndex`.
+     */
+    function getTierTargetMarketCapUsd(uint256 tierIndex) public pure returns (uint256) {
+        require(tierIndex < NUM_MARKETING_TIERS, "Invalid tier");
+        if (tierIndex == 0) return 40_000;
+        if (tierIndex == 1) return 70_000;
+        if (tierIndex == 2) return 100_000;
+        if (tierIndex == 3) return 250_000;
+        if (tierIndex == 4) return 500_000;
+        if (tierIndex == 5) return 750_000;
+        if (tierIndex == 6) return 1_000_000;
+        if (tierIndex == 7) return 1_500_000;
+        if (tierIndex == 8) return 2_000_000;
+        return 5_000_000;
+    }
+
+    /**
+     * @dev Returns the tick offset (multiple of 60) corresponding to each of the 10 Market Cap milestones:
+     * 40k (2x -> 6960), 70k (3.5x -> 12540), 100k (5x -> 16080), 250k (12.5x -> 25260),
+     * 500k (25x -> 32220), 750k (37.5x -> 36240), 1M (50x -> 39120), 1.5M (75x -> 43200),
+     * 2M (100x -> 46080), 5M (250x -> 55200).
+     */
+    function _getTierTickOffset(uint256 tierIndex) internal pure returns (int24) {
+        if (tierIndex == 0) return 6960;
+        if (tierIndex == 1) return 12540;
+        if (tierIndex == 2) return 16080;
+        if (tierIndex == 3) return 25260;
+        if (tierIndex == 4) return 32220;
+        if (tierIndex == 5) return 36240;
+        if (tierIndex == 6) return 39120;
+        if (tierIndex == 7) return 43200;
+        if (tierIndex == 8) return 46080;
+        return 55200;
     }
 
     function _getLiquidityForAmount0(
@@ -130,9 +212,9 @@ contract IRLMarketingVault is IERC721Receiver {
     }
 
     /**
-     * @notice Seeds the 90% Permanently Locked Liquidity (900M $IRL) and the 10% Conditionally
-     *         Withdrawable Marketing Liquidity (100M $IRL) into the Uniswap V4 pool.
-     *         Any residual rounding dust (< 0.00001 $IRL) is permanently burned to 0xdead.
+     * @notice Seeds the 80% Permanently Locked Liquidity (800M $IRL) and the 20% 10-Tier
+     *         Auto-Withdrawing Dev/Marketing Liquidity (10 x 20M $IRL = 200M $IRL) into the Uniswap V4 pool.
+     *         Any residual rounding dust is permanently burned to 0xdead.
      */
     function seedInitialLiquidity(PoolKey calldata poolKey) external onlyOwner {
         require(!liquiditySeeded, "Liquidity already seeded");
@@ -149,10 +231,8 @@ contract IRLMarketingVault is IERC721Receiver {
 
         int24 pLower;
         int24 pUpper;
-        int24 mLower;
-        int24 mUpper;
         uint128 pLiq;
-        uint128 mLiq;
+        uint128 totalMLiq = 0;
 
         if (isIrl0) {
             int24 rem = currentTick % spacing;
@@ -162,19 +242,28 @@ contract IRLMarketingVault is IERC721Receiver {
 
             pLower = aligned;
             pUpper = TickMath.maxUsableTick(spacing);
-            mLower = aligned + 24000;
-            mUpper = aligned + 48000;
 
             pLiq = _getLiquidityForAmount0(
                 TickMath.getSqrtPriceAtTick(pLower),
                 TickMath.getSqrtPriceAtTick(pUpper),
                 PERMANENT_LP_AMOUNT - 1e12
             );
-            mLiq = _getLiquidityForAmount0(
-                TickMath.getSqrtPriceAtTick(mLower),
-                TickMath.getSqrtPriceAtTick(mUpper),
-                MARKETING_LP_AMOUNT - 1e12
-            );
+
+            for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+                int24 tUpper = aligned + _getTierTickOffset(i);
+                int24 tLower = tUpper - spacing;
+                uint128 tLiq = _getLiquidityForAmount0(
+                    TickMath.getSqrtPriceAtTick(tLower),
+                    TickMath.getSqrtPriceAtTick(tUpper),
+                    TIER_LP_AMOUNT - 1e11
+                );
+                tierTickLower[i] = tLower;
+                tierTickUpper[i] = tUpper;
+                tierLiquidity[i] = tLiq;
+                totalMLiq += tLiq;
+            }
+            marketingTickLower = tierTickLower[0];
+            marketingTickUpper = tierTickUpper[NUM_MARKETING_TIERS - 1];
         } else {
             int24 rem = currentTick % spacing;
             int24 aligned = currentTick - rem;
@@ -183,32 +272,36 @@ contract IRLMarketingVault is IERC721Receiver {
 
             pLower = TickMath.minUsableTick(spacing);
             pUpper = aligned;
-            mUpper = aligned - 24000;
-            mLower = aligned - 48000;
 
             pLiq = _getLiquidityForAmount1(
                 TickMath.getSqrtPriceAtTick(pLower),
                 TickMath.getSqrtPriceAtTick(pUpper),
                 PERMANENT_LP_AMOUNT - 1e12
             );
-            mLiq = _getLiquidityForAmount1(
-                TickMath.getSqrtPriceAtTick(mLower),
-                TickMath.getSqrtPriceAtTick(mUpper),
-                MARKETING_LP_AMOUNT - 1e12
-            );
+
+            for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+                int24 tLower = aligned - _getTierTickOffset(i);
+                int24 tUpper = tLower + spacing;
+                uint128 tLiq = _getLiquidityForAmount1(
+                    TickMath.getSqrtPriceAtTick(tLower),
+                    TickMath.getSqrtPriceAtTick(tUpper),
+                    TIER_LP_AMOUNT - 1e11
+                );
+                tierTickLower[i] = tLower;
+                tierTickUpper[i] = tUpper;
+                tierLiquidity[i] = tLiq;
+                totalMLiq += tLiq;
+            }
+            marketingTickLower = tierTickLower[NUM_MARKETING_TIERS - 1];
+            marketingTickUpper = tierTickUpper[0];
         }
 
         permanentTickLower = pLower;
         permanentTickUpper = pUpper;
         permanentLiquidity = pLiq;
+        marketingLiquidity = totalMLiq;
 
-        marketingTickLower = mLower;
-        marketingTickUpper = mUpper;
-        marketingLiquidity = mLiq;
-
-        poolManager.unlock(
-            abi.encode(ACTION_SEED_LP, poolKey, pLower, pUpper, pLiq, mLower, mUpper, mLiq)
-        );
+        poolManager.unlock(abi.encode(ACTION_SEED_LP, poolKey, pLower, pUpper, pLiq));
 
         uint256 dust = IERC20(irlToken).balanceOf(address(this));
         if (dust > 0) {
@@ -216,7 +309,23 @@ contract IRLMarketingVault is IERC721Receiver {
         }
 
         emit PermanentLiquidityLocked(pLower, pUpper, pLiq, PERMANENT_LP_AMOUNT, PERMANENT_LOCKED_SALT);
-        emit MarketingLiquiditySeeded(mLower, mUpper, mLiq, MARKETING_LP_AMOUNT, MARKETING_VAULT_SALT);
+        emit MarketingLiquiditySeeded(
+            marketingTickLower,
+            marketingTickUpper,
+            totalMLiq,
+            MARKETING_LP_AMOUNT,
+            MARKETING_VAULT_SALT
+        );
+        for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+            emit MarketingTierSeeded(
+                i,
+                getTierTargetMarketCapUsd(i),
+                tierTickLower[i],
+                tierTickUpper[i],
+                tierLiquidity[i],
+                getTierSalt(i)
+            );
+        }
     }
 
     /**
@@ -246,9 +355,75 @@ contract IRLMarketingVault is IERC721Receiver {
     }
 
     /**
-     * @notice Decreases the 10% Conditionally Withdrawable Marketing Liquidity (`MARKETING_VAULT_SALT`)
-     *         ONLY IF the pool's current tick has completely crossed the marketing bracket (100% WETH).
-     *         Note: The 90% `PERMANENT_LOCKED_SALT` position has NO decrease function and is locked forever.
+     * @notice Returns true if at least one of the 10 marketing LP tiers has reached its target
+     *         Market Cap (100% converted to WETH) and is ready for automatic withdrawal to `owner`.
+     */
+    function hasWithdrawableTier() public view returns (bool) {
+        if (!liquiditySeeded) return false;
+        (, int24 currentTick, , ) = poolManager.getSlot0(seededPoolKey.toId());
+        bool isIrl0 = (Currency.unwrap(seededPoolKey.currency0) == irlToken);
+        for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+            if (!tierWithdrawn[i] && tierLiquidity[i] > 0) {
+                bool reached = isIrl0
+                    ? (currentTick >= tierTickUpper[i])
+                    : (currentTick <= tierTickLower[i]);
+                if (reached) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @notice Automatically withdraws all reached 2% marketing LP tiers (where the pool price has crossed
+     *         the tier's target Market Cap so the position is 100% WETH/ETH), unwraps the WETH into native ETH,
+     *         and sends 100% of the proceeds directly to `owner` (dev wallet).
+     *         Can be triggered automatically by the V4 Hook upkeep/buyback or called directly by anyone.
+     * @return tiersWithdrawnCount Number of tiers withdrawn in this call.
+     * @return totalEthDelivered Total WETH/ETH delivered to `owner`.
+     */
+    function autoWithdrawReachedTiers() public returns (uint256 tiersWithdrawnCount, uint256 totalEthDelivered) {
+        if (!liquiditySeeded) return (0, 0);
+        (, int24 currentTick, , ) = poolManager.getSlot0(seededPoolKey.toId());
+        bool isIrl0 = (Currency.unwrap(seededPoolKey.currency0) == irlToken);
+
+        for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+            if (!tierWithdrawn[i] && tierLiquidity[i] > 0) {
+                bool reached = isIrl0
+                    ? (currentTick >= tierTickUpper[i])
+                    : (currentTick <= tierTickLower[i]);
+                if (reached) {
+                    uint128 liq = tierLiquidity[i];
+                    tierWithdrawn[i] = true;
+                    tierLiquidity[i] = 0;
+                    if (marketingLiquidity >= liq) {
+                        marketingLiquidity -= liq;
+                    } else {
+                        marketingLiquidity = 0;
+                    }
+
+                    bytes memory res = poolManager.unlock(
+                        abi.encode(ACTION_WITHDRAW_TIER, i, liq, owner)
+                    );
+                    uint256 ethOut = abi.decode(res, (uint256));
+                    tiersWithdrawnCount++;
+                    totalEthDelivered += ethOut;
+
+                    emit MarketingTierAutoWithdrawn(
+                        i,
+                        getTierTargetMarketCapUsd(i),
+                        liq,
+                        ethOut,
+                        owner
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * @notice Decreases a specific tier or the first available reached tier of the 20% Marketing Liquidity
+     *         ONLY IF the pool's current tick has completely crossed that tier's bracket (100% WETH).
+     *         Note: The 80% `PERMANENT_LOCKED_SALT` position has NO decrease function and is locked forever.
      */
     function decreaseMarketingLiquidity(
         uint128 liquidityToRemove,
@@ -260,24 +435,35 @@ contract IRLMarketingVault is IERC721Receiver {
 
         (, int24 currentTick, , ) = poolManager.getSlot0(seededPoolKey.toId());
         bool isIrl0 = (Currency.unwrap(seededPoolKey.currency0) == irlToken);
-        if (isIrl0) {
-            require(
-                currentTick >= marketingTickUpper,
-                "Market bracket not reached: IRL not yet converted to WETH (tick < tickUpper)"
-            );
-        } else {
-            require(
-                currentTick <= marketingTickLower,
-                "Market bracket not reached: IRL not yet converted to WETH (tick > tickLower)"
-            );
-        }
 
-        marketingLiquidity -= liquidityToRemove;
-        poolManager.unlock(
-            abi.encode(ACTION_DECREASE_MARKETING_LP, liquidityToRemove, recipient)
+        uint256 targetTier = type(uint256).max;
+        for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+            if (!tierWithdrawn[i] && tierLiquidity[i] >= liquidityToRemove) {
+                bool reached = isIrl0
+                    ? (currentTick >= tierTickUpper[i])
+                    : (currentTick <= tierTickLower[i]);
+                if (reached) {
+                    targetTier = i;
+                    break;
+                }
+            }
+        }
+        require(
+            targetTier != type(uint256).max,
+            "Market bracket not reached: IRL not yet converted to WETH"
         );
 
-        emit LiquidityDecreased(0, 0, 0);
+        tierLiquidity[targetTier] -= liquidityToRemove;
+        if (tierLiquidity[targetTier] == 0) {
+            tierWithdrawn[targetTier] = true;
+        }
+        marketingLiquidity -= liquidityToRemove;
+
+        poolManager.unlock(
+            abi.encode(ACTION_DECREASE_MARKETING_LP, targetTier, liquidityToRemove, recipient)
+        );
+
+        emit LiquidityDecreased(targetTier, 0, 0);
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
@@ -290,13 +476,10 @@ contract IRLMarketingVault is IERC721Receiver {
                 PoolKey memory poolKey,
                 int24 pLower,
                 int24 pUpper,
-                uint128 pLiq,
-                int24 mLower,
-                int24 mUpper,
-                uint128 mLiq
-            ) = abi.decode(data, (uint8, PoolKey, int24, int24, uint128, int24, int24, uint128));
+                uint128 pLiq
+            ) = abi.decode(data, (uint8, PoolKey, int24, int24, uint128));
 
-            (BalanceDelta d1, ) = poolManager.modifyLiquidity(
+            (BalanceDelta dPerm, ) = poolManager.modifyLiquidity(
                 poolKey,
                 ModifyLiquidityParams({
                     tickLower: pLower,
@@ -307,21 +490,23 @@ contract IRLMarketingVault is IERC721Receiver {
                 ""
             );
 
-            (BalanceDelta d2, ) = poolManager.modifyLiquidity(
-                poolKey,
-                ModifyLiquidityParams({
-                    tickLower: mLower,
-                    tickUpper: mUpper,
-                    liquidityDelta: int256(uint256(mLiq)),
-                    salt: MARKETING_VAULT_SALT
-                }),
-                ""
-            );
-
             bool isIrl0 = (Currency.unwrap(poolKey.currency0) == irlToken);
-            int128 totalIrlDelta = isIrl0
-                ? (d1.amount0() + d2.amount0())
-                : (d1.amount1() + d2.amount1());
+            int128 totalIrlDelta = isIrl0 ? dPerm.amount0() : dPerm.amount1();
+
+            for (uint256 i = 0; i < NUM_MARKETING_TIERS; i++) {
+                (BalanceDelta dTier, ) = poolManager.modifyLiquidity(
+                    poolKey,
+                    ModifyLiquidityParams({
+                        tickLower: tierTickLower[i],
+                        tickUpper: tierTickUpper[i],
+                        liquidityDelta: int256(uint256(tierLiquidity[i])),
+                        salt: getTierSalt(i)
+                    }),
+                    ""
+                );
+                totalIrlDelta += isIrl0 ? dTier.amount0() : dTier.amount1();
+            }
+
             uint256 irlOwed = uint256(int256(-totalIrlDelta));
 
             Currency irlCurr = Currency.wrap(irlToken);
@@ -367,19 +552,63 @@ contract IRLMarketingVault is IERC721Receiver {
             }
 
             return abi.encode(irlBought);
-        } else if (action == ACTION_DECREASE_MARKETING_LP) {
-            (, uint128 liquidityToRemove, address recipient) = abi.decode(
+        } else if (action == ACTION_WITHDRAW_TIER) {
+            (, uint256 tierIndex, uint128 liquidityToRemove, address recipient) = abi.decode(
                 data,
-                (uint8, uint128, address)
+                (uint8, uint256, uint128, address)
             );
 
             (BalanceDelta d, ) = poolManager.modifyLiquidity(
                 seededPoolKey,
                 ModifyLiquidityParams({
-                    tickLower: marketingTickLower,
-                    tickUpper: marketingTickUpper,
+                    tickLower: tierTickLower[tierIndex],
+                    tickUpper: tierTickUpper[tierIndex],
                     liquidityDelta: -int256(uint256(liquidityToRemove)),
-                    salt: MARKETING_VAULT_SALT
+                    salt: getTierSalt(tierIndex)
+                }),
+                ""
+            );
+
+            bool isIrl0 = (Currency.unwrap(seededPoolKey.currency0) == irlToken);
+            Currency wethCurr = isIrl0 ? seededPoolKey.currency1 : seededPoolKey.currency0;
+            Currency irlCurr = isIrl0 ? seededPoolKey.currency0 : seededPoolKey.currency1;
+            int128 wethDelta = isIrl0 ? d.amount1() : d.amount0();
+            int128 irlDelta = isIrl0 ? d.amount0() : d.amount1();
+
+            // Burn any microscopic rounding dust of IRL if present
+            if (irlDelta > 0) {
+                poolManager.take(irlCurr, DEAD_ADDRESS, uint256(int256(irlDelta)));
+            }
+
+            uint256 wethAmount = wethDelta > 0 ? uint256(int256(wethDelta)) : 0;
+            if (wethAmount > 0) {
+                address wethAddr = Currency.unwrap(wethCurr);
+                poolManager.take(wethCurr, address(this), wethAmount);
+                try IWETHVault(wethAddr).withdraw(wethAmount) {
+                    (bool ok, ) = payable(recipient).call{value: wethAmount}("");
+                    if (!ok) {
+                        IWETHVault(wethAddr).deposit{value: wethAmount}();
+                        require(IWETHVault(wethAddr).transfer(recipient, wethAmount), "WETH fallback failed");
+                    }
+                } catch {
+                    require(IWETHVault(wethAddr).transfer(recipient, wethAmount), "WETH transfer failed");
+                }
+            }
+
+            return abi.encode(wethAmount);
+        } else if (action == ACTION_DECREASE_MARKETING_LP) {
+            (, uint256 tierIndex, uint128 liquidityToRemove, address recipient) = abi.decode(
+                data,
+                (uint8, uint256, uint128, address)
+            );
+
+            (BalanceDelta d, ) = poolManager.modifyLiquidity(
+                seededPoolKey,
+                ModifyLiquidityParams({
+                    tickLower: tierTickLower[tierIndex],
+                    tickUpper: tierTickUpper[tierIndex],
+                    liquidityDelta: -int256(uint256(liquidityToRemove)),
+                    salt: getTierSalt(tierIndex)
                 }),
                 ""
             );

@@ -1,0 +1,197 @@
+{
+  "currentHourId": 497800,
+  "currentDayId": 20741,
+  "updatedAt": 1792081877,
+  "distributedRewardsEth": "0.621",
+  "lockedUnclaimedEth": "0.256",
+  "currentHourTop10": [],
+  "daily24hLeaderboard": [
+    {
+      "rank": 1,
+      "fullAddress": "0x5B5f858689D57aEC42B674234d6cdD4bEc86f983",
+      "address": "0x5B5f...f983",
+      "volumeEth": "0.3844",
+      "sharePercent": "10.1%",
+      "pendingRedistributionEth": "0.0045",
+      "isRealHuman": true
+    },
+    {
+      "rank": 2,
+      "fullAddress": "0x12bBbF58e3aa68d147050b08F37c8f0dd0De30a0",
+      "address": "0x12bB...30a0",
+      "volumeEth": "0.2879",
+      "sharePercent": "7.6%",
+      "pendingRedistributionEth": "0.0034",
+      "isRealHuman": true
+    },
+    {
+      "rank": 3,
+      "fullAddress": "0x6C39d7E6D7689b7a0d81aFF7Cc8a346FE054ff13",
+      "address": "0x6C39...ff13",
+      "volumeEth": "0.2277",
+      "sharePercent": "6.0%",
+      "pendingRedistributionEth": "0.0027",
+      "isRealHuman": true
+    },
+    {
+      "rank": 4,
+      "fullAddress": "0x22db619f37B4329Ca065c9d94Ab6FA1fC6f7e502",
+      "address": "0x22db...e502",
+      "volumeEth": "0.2115",
+      "sharePercent": "5.5%",
+      "pendingRedistributionEth": "0.0025",
+      "isRealHuman": true
+    },
+    {
+      "rank": 5,
+      "fullAddress": "0x153F9224c697a050aD8b1A82BD5DC4905aC3883C",
+      "address": "0x153F...883C",
+      "volumeEth": "0.2059",
+      "sharePercent": "5.4%",
+      "pendingRedistributionEth": "0.0024",
+      "isRealHuman": true
+    },
+    {
+      "rank": 6,
+      "fullAddress": "0xCfa50bFe717C21BC4Bb991c9324330b9C385d89f",
+      "address": "0xCfa5...d89f",
+      "volumeEth": "0.1980",
+      "sharePercent": "5.2%",
+      "pendingRedistributionEth": "0.0023",
+      "isRealHuman": true
+    },
+    {
+      "rank": 7,
+      "fullAddress": "0x6eFde52B7cd1AfEC0fb232fc74D9dC9Fd7C09827",
+      "address": "0x6eFd...9827",
+      "volumeEth": "0.1926",
+      "sharePercent": "5.1%",
+      "pendingRedistributionEth": "0.0023",
+      "isRealHuman": true
+    },
+    {
+      "rank": 8,
+      "fullAddress": "0xaD71bCAb835cbd79dd74980ca45D01c0ADCfF173",
+      "address": "0xaD71...F173",
+      "volumeEth": "0.1878",
+      "sharePercent": "4.9%",
+      "pendingRedistributionEth": "0.0022",
+      "isRealHuman": true
+    },
+    {
+      "rank": 9,
+      "fullAddress": "0x167b9C76bf1504Bdfee2f8de4F5c07FA4f0A2421",
+      "address": "0x167b...2421",
+      "volumeEth": "0.1835",
+      "sharePercent": "4.8%",
+      "pendingRedistributionEth": "0.0022",
+      "isRealHuman": true
+    },
+    {
+      "rank": 10,
+      "fullAddress": "0x39B37aa50DD75037d65C35d729EECD191191af59",
+      "address": "0x39B3...af59",
+      "volumeEth": "0.1787",
+      "sharePercent": "4.7%",
+      "pendingRedistributionEth": "0.0021",
+      "isRealHuman": true
+    },
+    {
+      "rank": 11,
+      "fullAddress": "0x728f51950FF096DC03a48F5e83f45aC8Bb75F500",
+      "address": "0x728f...F500",
+      "volumeEth": "0.1750",
+      "sharePercent": "4.6%",
+      "pendingRedistributionEth": "0.0021",
+      "isRealHuman": true
+    },
+    {
+      "rank": 12,
+      "fullAddress": "0xF6C000de750166D01291486bb3B49C9a4156C278",
+      "address": "0xF6C0...C278",
+      "volumeEth": "0.1528",
+      "sharePercent": "4.0%",
+      "pendingRedistributionEth": "0.0018",
+      "isRealHuman": true
+    },
+    {
+      "rank": 13,
+      "fullAddress": "0x5506C849822D6275701dbe69583bE80Ee6FE504c",
+      "address": "0x5506...504c",
+      "volumeEth": "0.1344",
+      "sharePercent": "3.5%",
+      "pendingRedistributionEth": "0.0016",
+      "isRealHuman": true
+    },
+    {
+      "rank": 14,
+      "fullAddress": "0xE209E0047731Aa494289E1Af9a0d03DA19c5EF08",
+      "address": "0xE209...EF08",
+      "volumeEth": "0.0996",
+      "sharePercent": "2.6%",
+      "pendingRedistributionEth": "0.0012",
+      "isRealHuman": true
+    },
+    {
+      "rank": 15,
+      "fullAddress": "0x329AcccF439cf7f9b60A3D5Aae1E61112e0327b1",
+      "address": "0x329A...27b1",
+      "volumeEth": "0.0782",
+      "sharePercent": "2.1%",
+      "pendingRedistributionEth": "0.0009",
+      "isRealHuman": true
+    },
+    {
+      "rank": 16,
+      "fullAddress": "0x677f603C47CB0a15eDbcc9966984F05860A61132",
+      "address": "0x677f...1132",
+      "volumeEth": "0.0734",
+      "sharePercent": "1.9%",
+      "pendingRedistributionEth": "0.0009",
+      "isRealHuman": true
+    },
+    {
+      "rank": 17,
+      "fullAddress": "0xadA5bb90d0de0bD1b6F3938708F49295A8D1F7CB",
+      "address": "0xadA5...F7CB",
+      "volumeEth": "0.0679",
+      "sharePercent": "1.8%",
+      "pendingRedistributionEth": "0.0008",
+      "isRealHuman": true
+    },
+    {
+      "rank": 18,
+      "fullAddress": "0xCC4bc7882D5ec4a3716e589aB3d816b61Ae47a1A",
+      "address": "0xCC4b...7a1A",
+      "volumeEth": "0.0657",
+      "sharePercent": "1.7%",
+      "pendingRedistributionEth": "0.0008",
+      "isRealHuman": true
+    },
+    {
+      "rank": 19,
+      "fullAddress": "0xF22E13f4fECF19c17Cd142b58A3ED3fBFC361fF5",
+      "address": "0xF22E...1fF5",
+      "volumeEth": "0.0645",
+      "sharePercent": "1.7%",
+      "pendingRedistributionEth": "0.0008",
+      "isRealHuman": true
+    },
+    {
+      "rank": 20,
+      "fullAddress": "0x9619b6994fAAF0bCfabc22f126ff6D23E744aFD9",
+      "address": "0x9619...aFD9",
+      "volumeEth": "0.0637",
+      "sharePercent": "1.7%",
+      "pendingRedistributionEth": "0.0008",
+      "isRealHuman": true
+    }
+  ],
+  "currentHourPotEth": "0.0000",
+  "totalHourTraders": 0,
+  "totalHourVolumeEth": "0.0000",
+  "totalDailyTraders": 59,
+  "totalDailyVolumeEth": "3.8122",
+  "sweptPotEth": "0.6080",
+  "nextRedistributionTime": "2026-10-18T00:00:00.000Z"
+}

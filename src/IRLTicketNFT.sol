@@ -89,6 +89,22 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Lists an expired unclaimed ticket put back into play by the Hook on the P2P Marketplace.
+     * @dev Only callable by the Hook (`owner()`). The ticket is held in custody by the Hook (`owner()`)
+     *      until bought on the P2P market; if unsold and drawn, the Hook routes the prize to `seller` (dev wallet).
+     */
+    function listRelistedTicket(uint256 tokenId, address seller, uint256 price) external onlyOwner {
+        require(ownerOf(tokenId) == msg.sender || ownerOf(tokenId) == seller, "Not in Hook/seller custody");
+        require(seller != address(0) && price > 0, "Invalid relist params");
+        listings[tokenId] = Listing({
+            seller: seller,
+            price: price,
+            active: true
+        });
+        emit TicketListed(tokenId, seller, price);
+    }
+
+    /**
      * @notice Cancels an active marketplace listing.
      * @param tokenId The ID of the listed ticket.
      */
@@ -109,7 +125,8 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
     function buyTicket(uint256 tokenId) external payable nonReentrant {
         Listing memory item = listings[tokenId];
         require(item.active, "Ticket not listed");
-        require(ownerOf(tokenId) == item.seller, "Seller no longer owns ticket");
+        address currentOwner = ownerOf(tokenId);
+        require(currentOwner == item.seller || currentOwner == owner(), "Seller no longer owns ticket");
         require(msg.sender != item.seller, "Cannot buy own ticket");
         require(msg.value == item.price, "Incorrect ETH price");
 
@@ -148,13 +165,34 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Mints a batch of lottery tickets to the specified address in a single call.
+     * @dev Only callable by the Hook (the owner of this contract).
+     * @param to The address receiving the tickets.
+     * @param count Number of tickets to mint.
+     * @return firstTokenId The first minted ticket ID.
+     * @return lastTokenId The last minted ticket ID.
+     */
+    function mintBatch(address to, uint256 count) external onlyOwner returns (uint256 firstTokenId, uint256 lastTokenId) {
+        require(count > 0, "Zero count");
+        firstTokenId = _nextTokenId;
+        for (uint256 i = 0; i < count; ) {
+            _mint(to, firstTokenId + i);
+            unchecked {
+                ++i;
+            }
+        }
+        lastTokenId = firstTokenId + count - 1;
+        _nextTokenId = lastTokenId + 1;
+    }
+
+    /**
      * @notice Returns the total number of tickets minted so far.
      */
     function totalTicketsMinted() external view returns (uint256) {
         return _nextTokenId - 1;
     }
 
-    // Optional: Set a base URI for visual tickets later
+    // Optional: Set a base URI for visual tickets later; defaults to 100% on-chain SVG metadata if empty
     string private _baseTokenURI;
 
     function _baseURI() internal view override returns (string memory) {
@@ -163,5 +201,39 @@ contract IRLTicketNFT is ERC721, Ownable, ReentrancyGuard {
 
     function setBaseURI(string memory baseURI) external onlyOwner {
         _baseTokenURI = baseURI;
+    }
+
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        _requireOwned(tokenId);
+        if (bytes(_baseTokenURI).length > 0) {
+            return super.tokenURI(tokenId);
+        }
+        string memory idStr = _toString(tokenId);
+        return string(
+            abi.encodePacked(
+                "data:application/json;utf8,{\"name\":\"IRL Genesis VIP Pass #",
+                idStr,
+                "\",\"description\":\"Internet Robinhood Lottery ($IRL) On-Chain VIP Lottery Ticket on Robinhood Chain.\",\"external_url\":\"https://irlprotocol.xyz\",\"image\":\"https://irlprotocol.xyz/nft_ticket.jpg\",\"attributes\":[{\"trait_type\":\"Ticket ID\",\"value\":\"#",
+                idStr,
+                "\"}]}"
+            )
+        );
+    }
+
+    function _toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
 }

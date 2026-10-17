@@ -4,7 +4,12 @@
   "description": "Telegram bot for Internet Robin Lottery ecosystem",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "keeper": "node hourly-redistribution.js",
+    "keeper:dry": "node hourly-redistribution.js --dry-run --once",
+    "vrf:status": "node scripts/openvrf-consumer.js status",
+    "vrf:pause": "node scripts/openvrf-consumer.js pause",
+    "vrf:resume": "node scripts/openvrf-consumer.js resume"
   },
   "dependencies": {
     "dotenv": "^16.3.1",

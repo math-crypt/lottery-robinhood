@@ -28,10 +28,19 @@ script/Simulation*.s.sol
 .agents/
 .impeccable/
 
-# Phase 2 Web Interface (Private until official launch)
-dapp/
+# Test files (excluded from public repo)
+test/
+dapp/test-dapp.mjs
+bot/test-*.js
+
+# Design & working docs
 PRODUCT.md
 DESIGN.md
+MASTER_BRIEF_V2.md
+BRIEFING_LANCEMENT_24H.txt
+v4_hook_upgrade_proposal.txt
+scratch/
+backup_v2_lounge/
 
 # Internal Audits, Changelogs & Working Documents
 AUDIT_PLAN.md
@@ -48,5 +57,16 @@ assets/*.mp4
 assets/*.gif
 assets/*.webm
 assets/*_preview*
-assets/x_launch_post*
+assets/x_*
+assets/buybot_banner.png
+assets/cmc_*
+assets/coingecko_*
+assets/listing_*
+assets/lottery_countdown*
+assets/math_cryp*
+assets/recap_*
+*.tar.gz
+bot/*.json
+!bot/package.json
+!bot/package-lock.json
 
